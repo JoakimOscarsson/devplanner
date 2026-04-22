@@ -7,6 +7,7 @@ This document tracks implementation milestones, substeps, dependencies, and clea
 - Prefer vertical slices that can be demoed through the web app at the end of each milestone.
 - Shared-surface milestones may still be infrastructure-heavy, but each should expose a visible or callable demo checkpoint.
 - Parallel work is encouraged only after the contract gate for that slice is stable.
+- When parallel work is active, each agent should work on its own branch and return a branch-scoped slice for coordinator integration.
 - If a milestone spans multiple demos, deliver the smallest demoable checkpoint first and treat the rest as follow-on substeps.
 - Protect local iteration speed as a platform feature: avoid broad rebuilds and repeated dependency work in normal dev and demo loops whenever a narrower affected-only path is possible.
 

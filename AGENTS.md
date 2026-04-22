@@ -22,6 +22,9 @@
 
 ## Coordination rules
 - One agent task should stay inside one owned module boundary whenever possible.
+- Every parallel agent task should work from its own Git branch rather than sharing the coordinator branch or another agent branch.
+- Use branch names that make ownership obvious, such as `agent/<area>-<slice>` or `codex/<milestone>-<module>`.
+- The coordinator is responsible for creating, tracking, and integrating agent branches back into the main line.
 - Stop and coordinate before changing `docs/interface-catalog.md`, `docs/dependency-map.md`, `packages/contracts-*/src`, `ARCHITECTURE.md`, `docker-compose.yml`, or the root `package.json`.
 - Shared runtime packages such as `packages/runtime-node` and `packages/runtime-web` are coordination surfaces. Keep their API changes small and intentional.
 - Prefer opening a contract or runtime change first, then fan out to dependent modules.

@@ -9,10 +9,18 @@
 
 ## Default implementation protocol
 1. Confirm the ownership boundary and the exact contract or behavior being changed.
-2. Work TDD-style by writing or updating the narrowest failing test that captures the expected behavior first.
-3. Implement the smallest change that makes the test pass while staying inside the owned boundary.
-4. Run the narrowest useful verification first, then the broader repo checks when the change crosses boundaries.
-5. Update architecture and guide docs in the same change whenever behavior, boundaries, dependencies, or public interfaces move.
+2. If the work is parallelized, start from a dedicated branch for that agent task before making changes.
+3. Work TDD-style by writing or updating the narrowest failing test that captures the expected behavior first.
+4. Implement the smallest change that makes the test pass while staying inside the owned boundary.
+5. Run the narrowest useful verification first, then the broader repo checks when the change crosses boundaries.
+6. Update architecture and guide docs in the same change whenever behavior, boundaries, dependencies, or public interfaces move.
+
+## Parallel branch policy
+- Every parallel agent task should use its own Git branch.
+- Do not let multiple active agents commit onto the same working branch.
+- Prefer branch names that encode both area and slice, for example `agent/tracker-projections`, `agent/skills-duplicate-flow`, or `codex/m6-planner-goals`.
+- The coordinator branch should stay reserved for integration, shared-surface fixes, and final verification.
+- Merge or rebase agent branches only after their narrow tests pass and the coordinator has reviewed shared-surface impact.
 
 ## TDD defaults
 - Prefer contract tests for contract packages and boundary changes.
