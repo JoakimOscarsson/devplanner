@@ -503,6 +503,53 @@ describe("graph-service skill routes", () => {
     });
   });
 
+  it("supports multiple tags and clears color metadata when requested", async () => {
+    const { baseUrl } = await startServer();
+
+    const createResponse = await fetch(`${baseUrl}/v1/skills/tree/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "Developer Experience",
+        tag: "frontend, ui; accessibility",
+        color: "#3b82f6"
+      })
+    });
+    const createPayload = await readJson<{
+      skillNode: GraphNode;
+    }>(createResponse);
+
+    expect(createResponse.status).toBe(201);
+    expect(createPayload.skillNode.metadata).toMatchObject({
+      tags: ["frontend", "ui", "accessibility"],
+      color: "#3b82f6"
+    });
+
+    const updateResponse = await fetch(
+      `${baseUrl}/v1/skills/tree/nodes/${createPayload.skillNode.id}`,
+      {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          color: null
+        })
+      }
+    );
+    const updatePayload = await readJson<{
+      skillNode: GraphNode;
+    }>(updateResponse);
+
+    expect(updateResponse.status).toBe(200);
+    expect(updatePayload.skillNode.metadata?.color).toBeUndefined();
+    expect(updatePayload.skillNode.metadata).toMatchObject({
+      tags: ["frontend", "ui", "accessibility"]
+    });
+  });
+
   it("reorders sibling skills within the same parent", async () => {
     const { baseUrl } = await startServer();
 

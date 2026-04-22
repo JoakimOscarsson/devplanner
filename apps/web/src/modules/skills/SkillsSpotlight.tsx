@@ -17,9 +17,11 @@ import {
 import {
   buildSkillsPanelModel,
   EMPTY_SKILLS_SNAPSHOT,
+  formatTagList,
   flattenVisibleSkillTree,
   interpretSkillTreeHotkey,
   moveSkillTreeSelection,
+  parseTagList,
   resolveVisibleDropIndicator,
   type SkillTreeNodeModel
 } from "./skills-model";
@@ -91,11 +93,18 @@ function createDraftFromNode(node: SkillTreeNodeModel): SkillEditorDraft {
   return {
     label: node.label,
     description: node.description ?? "",
-    tag: node.tag ?? "",
+    tag: formatTagList(node.tags),
     color: node.color ?? "",
     tagTouched: false,
     colorTouched: false
   };
+}
+
+export function shouldCloseSkillEditorFromPointerInteraction(input: {
+  readonly startedOnBackdrop: boolean;
+  readonly endedOnBackdrop: boolean;
+}) {
+  return input.startedOnBackdrop && input.endedOnBackdrop;
 }
 
 function readStoredBoolean(key: string, fallback: boolean) {
@@ -296,6 +305,7 @@ function SkillEditorModal({
   readonly onSubmit: () => void;
 }) {
   const formRef = useRef<HTMLFormElement | null>(null);
+  const pointerStartedOnBackdrop = useRef(false);
   const isBulkEdit = state.mode === "bulk-edit";
   const isCreateChild = state.mode === "create-child";
   const submitDisabled =
@@ -312,7 +322,30 @@ function SkillEditorModal({
   }, []);
 
   return (
-    <div className="skill-modal-backdrop" role="presentation" onClick={onCancel}>
+    <div
+      className="skill-modal-backdrop"
+      role="presentation"
+      onPointerDown={(event) => {
+        pointerStartedOnBackdrop.current = event.target === event.currentTarget;
+      }}
+      onPointerUp={(event) => {
+        const endedOnBackdrop = event.target === event.currentTarget;
+
+        if (
+          shouldCloseSkillEditorFromPointerInteraction({
+            startedOnBackdrop: pointerStartedOnBackdrop.current,
+            endedOnBackdrop
+          })
+        ) {
+          onCancel();
+        }
+
+        pointerStartedOnBackdrop.current = false;
+      }}
+      onPointerCancel={() => {
+        pointerStartedOnBackdrop.current = false;
+      }}
+    >
       <form
         ref={formRef}
         className="skill-modal"
@@ -372,7 +405,9 @@ function SkillEditorModal({
           <input
             value={isCreateChild && inheritParentTag ? parentTag ?? "" : draft.tag}
             placeholder={
-              isBulkEdit ? "Leave untouched unless you want to update tags" : "e.g. technical"
+              isBulkEdit
+                ? "Leave untouched unless you want to update tags"
+                : "e.g. technical, leadership; mentoring"
             }
             disabled={isCreateChild && inheritParentTag}
             onChange={(event) =>
@@ -688,7 +723,7 @@ export function SkillsSpotlight({
     });
     setEditorDraft({
       ...createEmptyDraft(),
-      tag: childCreateDefaults.inheritParentTag ? node.tag ?? "" : "",
+      tag: childCreateDefaults.inheritParentTag ? formatTagList(node.tags) : "",
       color: childCreateDefaults.inheritParentColor ? node.color ?? "" : ""
     });
     setBulkApplyToChildren(false);
@@ -800,7 +835,9 @@ export function SkillsSpotlight({
       } else {
         const nextTag =
           editorState.mode === "create-child" && childCreateDefaults.inheritParentTag
-            ? activeParentNode?.tag ?? ""
+            ? activeParentNode
+              ? formatTagList(activeParentNode.tags)
+              : ""
             : editorDraft.tag;
         const nextColor =
           editorState.mode === "create-child" && childCreateDefaults.inheritParentColor
@@ -812,7 +849,7 @@ export function SkillsSpotlight({
           ...(editorDraft.description.trim().length > 0
             ? { description: editorDraft.description }
             : {}),
-          ...(nextTag.trim().length > 0 ? { tag: nextTag } : {}),
+          ...(parseTagList(nextTag).length > 0 ? { tag: nextTag } : {}),
           ...(nextColor ? { color: nextColor } : {}),
           ...(editorState.parentNodeId
             ? { parentNodeId: editorState.parentNodeId as GraphNode["id"] }
@@ -1171,9 +1208,11 @@ export function SkillsSpotlight({
                           />
                         ) : null}
                         <span className="skill-tree__label">{row.node.label}</span>
-                        {row.node.tag ? (
-                          <span className="skill-tree__tag">{row.node.tag}</span>
-                        ) : null}
+                        {row.node.tags.map((tag) => (
+                          <span key={`${row.node.id}-${tag}`} className="skill-tree__tag">
+                            {tag}
+                          </span>
+                        ))}
                         {row.node.kind === "reference" ? (
                           <span className="skill-tree__reference-badge">Reference</span>
                         ) : null}
@@ -1270,7 +1309,7 @@ export function SkillsSpotlight({
           applyToChildren={bulkApplyToChildren}
           inheritParentTag={childCreateDefaults.inheritParentTag}
           inheritParentColor={childCreateDefaults.inheritParentColor}
-          parentTag={activeParentNode?.tag}
+          parentTag={activeParentNode ? formatTagList(activeParentNode.tags) : undefined}
           parentColor={activeParentNode?.color}
           onDraftChange={setEditorDraft}
           onApplyToChildrenChange={setBulkApplyToChildren}
@@ -1281,7 +1320,7 @@ export function SkillsSpotlight({
             }));
             setEditorDraft((current) => ({
               ...current,
-              tag: checked ? activeParentNode?.tag ?? "" : "",
+              tag: checked && activeParentNode ? formatTagList(activeParentNode.tags) : "",
               tagTouched: false
             }));
           }}

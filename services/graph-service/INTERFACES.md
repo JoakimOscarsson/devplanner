@@ -18,6 +18,10 @@
 - `POST /v1/skills/tree/nodes/:nodeId/reorder`
 - `DELETE /v1/skills/tree/nodes/:nodeId`
 
+## Skill-tree metadata behavior
+- Skill-tree create and update payloads accept comma- or semicolon-separated tag strings and persist them as both a display `tag` string and a normalized `tags` array in node metadata.
+- Sending `color: null` on `PATCH /v1/skills/tree/nodes/:nodeId` explicitly removes the stored color from the skill metadata.
+
 ## Shared conventions
 - Uses id prefixes from `@pdp-helper/contracts-core.ID_PREFIXES`
 - Uses route prefixes from `@pdp-helper/contracts-core.HTTP_ROUTE_PREFIXES`

@@ -10,12 +10,16 @@ import {
   EMPTY_SKILLS_SNAPSHOT,
   SKILL_TREE_DEPTH_LIMIT,
   flattenVisibleSkillTree,
+  formatTagList,
   interpretSkillTreeHotkey,
   moveSkillTreeSelection,
   resolveVisibleDropIndicator,
   type SkillsSnapshot
 } from "../../apps/web/src/modules/skills/skills-model";
-import { SkillsSpotlight } from "../../apps/web/src/modules/skills/SkillsSpotlight";
+import {
+  shouldCloseSkillEditorFromPointerInteraction,
+  SkillsSpotlight
+} from "../../apps/web/src/modules/skills/SkillsSpotlight";
 
 function createSnapshot(): SkillsSnapshot {
   return {
@@ -67,7 +71,8 @@ function createSnapshot(): SkillsSnapshot {
           metadata: {
             skillId: "skl_frontend",
             sortOrder: 0,
-            tag: "focus",
+            tag: "focus, leadership",
+            tags: ["focus", "leadership"],
             color: "#3b82f6"
           },
           workspaceId: "wrk_demo_owner",
@@ -89,7 +94,8 @@ function createSnapshot(): SkillsSnapshot {
           metadata: {
             skillId: "skl_typescript",
             sortOrder: 0,
-            tag: "technical",
+            tag: "technical, frontend",
+            tags: ["technical", "frontend"],
             color: "#8b5cf6"
           },
           workspaceId: "wrk_demo_owner",
@@ -264,6 +270,7 @@ describe("skills module", () => {
     expect(model.treeRoots[0]?.label).toBe("Frontend");
     expect(model.treeRoots[0]?.children[0]?.label).toBe("TypeScript");
     expect(model.treeRoots[0]?.children[0]?.tag).toBe("technical");
+    expect(model.treeRoots[0]?.children[0]?.tags).toEqual(["technical", "frontend"]);
     expect(model.hiddenFeatureNotes).toEqual(
       expect.arrayContaining([
         expect.stringContaining("reference"),
@@ -279,7 +286,7 @@ describe("skills module", () => {
     const visibleRows = flattenVisibleSkillTree(
       model.treeRoots,
       new Set(["nod_skill_frontend", "nod_skill_typescript"]),
-      "type"
+      "frontend"
     );
 
     expect(visibleRows.map((row) => row.id)).toEqual([
@@ -337,6 +344,48 @@ describe("skills module", () => {
       "nod_skill_typescript"
     );
     expect(moveSkillTreeSelection(rows, "nod_skill_typescript", -1)).toBe("nod_skill_frontend");
+  });
+
+  it("formats and filters multiple tags as a single searchable field", () => {
+    const model = buildSkillsPanelModel(createSnapshot());
+
+    expect(formatTagList(model.treeRoots[0]?.children[0]?.tags ?? [])).toBe(
+      "technical, frontend"
+    );
+
+    const visibleRows = flattenVisibleSkillTree(
+      model.treeRoots,
+      new Set(["nod_skill_frontend", "nod_skill_typescript"]),
+      "frontend"
+    );
+
+    expect(visibleRows.map((row) => row.id)).toEqual([
+      "nod_skill_frontend",
+      "nod_skill_typescript"
+    ]);
+  });
+
+  it("only closes the skill editor when both pointer down and up happen on the backdrop", () => {
+    expect(
+      shouldCloseSkillEditorFromPointerInteraction({
+        startedOnBackdrop: true,
+        endedOnBackdrop: true
+      })
+    ).toBe(true);
+
+    expect(
+      shouldCloseSkillEditorFromPointerInteraction({
+        startedOnBackdrop: false,
+        endedOnBackdrop: true
+      })
+    ).toBe(false);
+
+    expect(
+      shouldCloseSkillEditorFromPointerInteraction({
+        startedOnBackdrop: true,
+        endedOnBackdrop: false
+      })
+    ).toBe(false);
   });
 
   it("renders the interactive tree, search, and editor affordances", () => {

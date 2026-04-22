@@ -146,6 +146,52 @@ function readNodeStringMetadata(node: NodeRecord, key: string) {
   return typeof value === "string" ? value : undefined;
 }
 
+function parseTagList(input: string | undefined | null) {
+  if (!input) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const tags: string[] = [];
+
+  for (const rawTag of input.split(/[;,]/g)) {
+    const tag = rawTag.trim();
+
+    if (tag.length === 0) {
+      continue;
+    }
+
+    const normalizedTag = tag.toLowerCase();
+
+    if (seen.has(normalizedTag)) {
+      continue;
+    }
+
+    seen.add(normalizedTag);
+    tags.push(tag);
+  }
+
+  return tags;
+}
+
+function formatTagList(tags: readonly string[]) {
+  return tags.join(", ");
+}
+
+function readNodeTagString(node: NodeRecord) {
+  const explicitTags = node.metadata?.tags;
+
+  if (Array.isArray(explicitTags)) {
+    const tags = explicitTags.filter((entry): entry is string => typeof entry === "string");
+
+    if (tags.length > 0) {
+      return formatTagList(tags);
+    }
+  }
+
+  return readNodeStringMetadata(node, "tag");
+}
+
 function readNodeNumberMetadata(node: NodeRecord, key: string) {
   const value = node.metadata?.[key];
   return typeof value === "number" ? value : undefined;
@@ -155,8 +201,8 @@ function buildSkillTreeMetadata(input: {
   readonly skillId?: Skill["id"];
   readonly sourceNodeId?: GraphNode["id"];
   readonly referenceNodeId?: GraphNode["id"];
-  readonly tag?: string;
-  readonly color?: string;
+  readonly tag?: string | null;
+  readonly color?: string | null;
   readonly sortOrder?: number;
   readonly existing?: JsonObject;
 }) {
@@ -177,16 +223,22 @@ function buildSkillTreeMetadata(input: {
   }
 
   if (input.tag !== undefined) {
-    if (input.tag.trim().length > 0) {
-      metadata.tag = input.tag.trim();
+    const tags = parseTagList(input.tag);
+
+    if (tags.length > 0) {
+      metadata.tag = formatTagList(tags);
+      metadata.tags = tags;
     } else {
       delete metadata.tag;
+      delete metadata.tags;
     }
   }
 
   if (input.color !== undefined) {
-    if (input.color.trim().length > 0) {
-      metadata.color = input.color.trim();
+    const color = input.color?.trim() ?? "";
+
+    if (color.length > 0) {
+      metadata.color = color;
     } else {
       delete metadata.color;
     }
@@ -1388,10 +1440,10 @@ export function updateSkillTreeNode(
       ? changes.description?.trim() || undefined
       : node.description;
   const nextTag =
-    changes.tag !== undefined ? changes.tag?.trim() || undefined : readNodeStringMetadata(node, "tag");
+    changes.tag !== undefined ? changes.tag?.trim() || null : readNodeTagString(node);
   const nextColor =
     changes.color !== undefined
-      ? changes.color?.trim() || undefined
+      ? changes.color?.trim() || null
       : readNodeStringMetadata(node, "color");
 
   let skill: SkillRecord | undefined;

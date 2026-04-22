@@ -17,6 +17,7 @@ export interface SkillTreeNodeModel {
   readonly parentId?: GraphNode["id"];
   readonly description?: string;
   readonly tag?: string;
+  readonly tags: readonly string[];
   readonly color?: string;
   readonly sortOrder: number;
   readonly meta: string;
@@ -88,6 +89,58 @@ function readStringMetadata(node: GraphNode, key: string) {
   return typeof value === "string" ? value : undefined;
 }
 
+function readStringArrayMetadata(node: GraphNode, key: string) {
+  const value = node.metadata?.[key];
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+export function parseTagList(input: string | undefined | null) {
+  if (!input) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const tags: string[] = [];
+
+  for (const rawTag of input.split(/[;,]/g)) {
+    const tag = rawTag.trim();
+
+    if (tag.length === 0) {
+      continue;
+    }
+
+    const normalizedTag = tag.toLowerCase();
+
+    if (seen.has(normalizedTag)) {
+      continue;
+    }
+
+    seen.add(normalizedTag);
+    tags.push(tag);
+  }
+
+  return tags;
+}
+
+export function formatTagList(tags: readonly string[]) {
+  return tags.join(", ");
+}
+
+function readTagListMetadata(node: GraphNode) {
+  const explicitTags = readStringArrayMetadata(node, "tags");
+
+  if (explicitTags.length > 0) {
+    return explicitTags;
+  }
+
+  return parseTagList(readStringMetadata(node, "tag"));
+}
+
 function readNumberMetadata(node: GraphNode, key: string) {
   const value = node.metadata?.[key];
   return typeof value === "number" ? value : undefined;
@@ -140,7 +193,8 @@ function buildEdgeChildrenMap(edges: readonly GraphEdge[]) {
 }
 
 function createTreeNodeBase(node: GraphNode, kind: "skill" | "reference") {
-  const tag = readStringMetadata(node, "tag");
+  const tags = readTagListMetadata(node);
+  const tag = tags[0];
   const meta = kind === "reference" ? "Reference" : tag ?? "Skill";
 
   return {
@@ -151,6 +205,7 @@ function createTreeNodeBase(node: GraphNode, kind: "skill" | "reference") {
     parentId: node.parentNodeId,
     description: node.description,
     tag,
+    tags,
     color: readStringMetadata(node, "color"),
     sortOrder: readNumberMetadata(node, "sortOrder") ?? Number.MAX_SAFE_INTEGER,
     meta
@@ -229,7 +284,8 @@ function buildFallbackInventoryTreeRoots(
         skillId: entry.skillId as Skill["id"],
         description:
           typeof backingNode?.description === "string" ? backingNode.description : undefined,
-        tag: backingNode ? readStringMetadata(backingNode, "tag") : undefined,
+        tag: backingNode ? readTagListMetadata(backingNode)[0] : undefined,
+        tags: backingNode ? readTagListMetadata(backingNode) : [],
         color: backingNode ? readStringMetadata(backingNode, "color") : undefined,
         sortOrder:
           (backingNode ? readNumberMetadata(backingNode, "sortOrder") : undefined) ?? index,
@@ -251,8 +307,8 @@ function filterTreeByQuery(
 
   return nodes.flatMap((node) => {
     const filteredChildren = filterTreeByQuery(node.children, normalizedQuery);
-    const matchesNode = [node.label, node.description, node.tag]
-      .filter((value): value is string => typeof value === "string")
+    const matchesNode = [node.label, node.description, formatTagList(node.tags)]
+      .filter((value): value is string => typeof value === "string" && value.length > 0)
       .some((value) => value.toLowerCase().includes(normalizedQuery));
 
     if (!matchesNode && filteredChildren.length === 0) {
