@@ -27,6 +27,8 @@ export interface SkillTreeNodeModel {
 export interface SkillsPanelModel {
   readonly inventorySummary: SkillsInventorySummaryModel;
   readonly treeRoots: readonly SkillTreeNodeModel[];
+  readonly availableTagFilters: readonly string[];
+  readonly availableColorFilters: readonly string[];
   readonly hiddenFeatureNotes: readonly string[];
 }
 
@@ -41,6 +43,12 @@ export interface VisibleSkillTreeRowModel {
 export interface SkillTreeDropIndicatorModel {
   readonly targetNodeId: string;
   readonly position: "before" | "after";
+}
+
+export interface SkillTreeFilterState {
+  readonly query?: string;
+  readonly tag?: string;
+  readonly color?: string;
 }
 
 export type SkillTreeHotkeyAction =
@@ -70,7 +78,7 @@ export const TEMPORARILY_HIDDEN_SKILLTREE_FEATURES = [
   "Resolve duplicate canonical skills from the tree",
   "Review brainstorm promotion candidates from the skill tree page",
   "Bulk actions such as multi-select, batch tagging, or batch reorder",
-  "Skill rating, gap, and tag filters"
+  "Skill rating and gap filters"
 ] as const;
 
 export const SKILL_TREE_DEPTH_LIMIT = 50;
@@ -295,21 +303,31 @@ function buildFallbackInventoryTreeRoots(
     });
 }
 
-function filterTreeByQuery(
+function filterTreeByCriteria(
   nodes: readonly SkillTreeNodeModel[],
-  query: string
+  filters: SkillTreeFilterState
 ): SkillTreeNodeModel[] {
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = filters.query?.trim().toLowerCase() ?? "";
+  const normalizedTag = filters.tag?.trim().toLowerCase() ?? "";
+  const normalizedColor = filters.color?.trim().toLowerCase() ?? "";
+  const hasQuery = normalizedQuery.length > 0;
+  const hasTag = normalizedTag.length > 0;
+  const hasColor = normalizedColor.length > 0;
 
-  if (normalizedQuery.length === 0) {
+  if (!hasQuery && !hasTag && !hasColor) {
     return [...nodes];
   }
 
   return nodes.flatMap((node) => {
-    const filteredChildren = filterTreeByQuery(node.children, normalizedQuery);
-    const matchesNode = [node.label, node.description, formatTagList(node.tags)]
+    const filteredChildren = filterTreeByCriteria(node.children, filters);
+    const matchesQuery = [node.label, node.description, formatTagList(node.tags)]
       .filter((value): value is string => typeof value === "string" && value.length > 0)
       .some((value) => value.toLowerCase().includes(normalizedQuery));
+    const matchesTag =
+      !hasTag || node.tags.some((tag) => tag.toLowerCase() === normalizedTag);
+    const matchesColor = !hasColor || node.color?.toLowerCase() === normalizedColor;
+    const matchesNode =
+      (!hasQuery || matchesQuery) && matchesTag && matchesColor;
 
     if (!matchesNode && filteredChildren.length === 0) {
       return [];
@@ -350,15 +368,40 @@ function flattenSkillTreeNodes(
 export function flattenVisibleSkillTree(
   treeRoots: readonly SkillTreeNodeModel[],
   expandedIds: ReadonlySet<string>,
-  query = ""
+  filters: string | SkillTreeFilterState = ""
 ) {
-  const filteredRoots = filterTreeByQuery(treeRoots, query);
+  const normalizedFilters =
+    typeof filters === "string" ? { query: filters } satisfies SkillTreeFilterState : filters;
+  const filteredRoots = filterTreeByCriteria(treeRoots, normalizedFilters);
   const rows: VisibleSkillTreeRowModel[] = [];
-  const alwaysExpand = query.trim().length > 0;
+  const alwaysExpand =
+    Boolean(normalizedFilters.query?.trim()) ||
+    Boolean(normalizedFilters.tag?.trim()) ||
+    Boolean(normalizedFilters.color?.trim());
 
   flattenSkillTreeNodes(filteredRoots, expandedIds, 0, rows, alwaysExpand);
 
   return rows;
+}
+
+function collectSkillTreeFilterValues(
+  nodes: readonly SkillTreeNodeModel[],
+  result: {
+    readonly tags: Set<string>;
+    readonly colors: Set<string>;
+  }
+) {
+  for (const node of nodes) {
+    for (const tag of node.tags) {
+      result.tags.add(tag);
+    }
+
+    if (node.color) {
+      result.colors.add(node.color);
+    }
+
+    collectSkillTreeFilterValues(node.children, result);
+  }
 }
 
 export function resolveVisibleDropIndicator(
@@ -504,6 +547,22 @@ export function buildSkillsPanelModel(snapshot: SkillsSnapshot): SkillsPanelMode
       totalSkillGraphNodes: snapshot.summary.totalSkillGraphNodes
     },
     treeRoots: resolvedTreeRoots,
+    availableTagFilters: (() => {
+      const values = {
+        tags: new Set<string>(),
+        colors: new Set<string>()
+      };
+      collectSkillTreeFilterValues(resolvedTreeRoots, values);
+      return [...values.tags].sort((left, right) => left.localeCompare(right));
+    })(),
+    availableColorFilters: (() => {
+      const values = {
+        tags: new Set<string>(),
+        colors: new Set<string>()
+      };
+      collectSkillTreeFilterValues(resolvedTreeRoots, values);
+      return [...values.colors].sort((left, right) => left.localeCompare(right));
+    })(),
     hiddenFeatureNotes: TEMPORARILY_HIDDEN_SKILLTREE_FEATURES
   };
 }

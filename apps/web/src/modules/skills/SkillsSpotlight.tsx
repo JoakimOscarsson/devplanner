@@ -23,6 +23,7 @@ import {
   moveSkillTreeSelection,
   parseTagList,
   resolveVisibleDropIndicator,
+  type SkillTreeFilterState,
   type SkillTreeNodeModel
 } from "./skills-model";
 
@@ -84,6 +85,10 @@ const COLOR_OPTIONS = [
   "#8b5cf6",
   "#ec4899"
 ] as const;
+
+function formatColorFilterLabel(color: string) {
+  return color.toUpperCase();
+}
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unable to load skill tree data.";
@@ -589,6 +594,7 @@ export function SkillsSpotlight({
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [multiSelectEnabled, setMultiSelectEnabled] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilters, setActiveFilters] = useState<SkillTreeFilterState>({});
   const [editorState, setEditorState] = useState<SkillEditorState | null>(null);
   const [editorDraft, setEditorDraft] = useState<SkillEditorDraft>(createEmptyDraft);
   const [pendingMutation, setPendingMutation] = useState(false);
@@ -668,8 +674,13 @@ export function SkillsSpotlight({
   const activeSnapshot = localSnapshot ?? EMPTY_SKILLS_SNAPSHOT;
   const model = buildSkillsPanelModel(activeSnapshot);
   const visibleRows = useMemo(
-    () => flattenVisibleSkillTree(model.treeRoots, expandedIds, deferredSearchQuery),
-    [deferredSearchQuery, expandedIds, model.treeRoots]
+    () =>
+      flattenVisibleSkillTree(model.treeRoots, expandedIds, {
+        query: deferredSearchQuery,
+        tag: activeFilters.tag,
+        color: activeFilters.color
+      }),
+    [activeFilters.color, activeFilters.tag, deferredSearchQuery, expandedIds, model.treeRoots]
   );
   const visibleDropIndicator = useMemo(
     () => resolveVisibleDropIndicator(visibleRows, dropIndicator),
@@ -1157,6 +1168,48 @@ export function SkillsSpotlight({
               onChange={(event) => setSearchQuery(event.target.value)}
             />
           </label>
+
+          <div className="skill-tree-toolbar__filters">
+            <label className="skill-tree-toolbar__filter">
+              <span>Tag</span>
+              <select
+                value={activeFilters.tag ?? ""}
+                onChange={(event) =>
+                  setActiveFilters((current) => ({
+                    ...current,
+                    tag: event.target.value || undefined
+                  }))
+                }
+              >
+                <option value="">All tags</option>
+                {model.availableTagFilters.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="skill-tree-toolbar__filter">
+              <span>Color</span>
+              <select
+                value={activeFilters.color ?? ""}
+                onChange={(event) =>
+                  setActiveFilters((current) => ({
+                    ...current,
+                    color: event.target.value || undefined
+                  }))
+                }
+              >
+                <option value="">All colors</option>
+                {model.availableColorFilters.map((color) => (
+                  <option key={color} value={color}>
+                    {formatColorFilterLabel(color)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
           <div className="skill-tree-toolbar__actions">
             <button

@@ -484,6 +484,31 @@ textarea {
   flex-wrap: wrap;
 }
 
+.skill-tree-toolbar__filters {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.skill-tree-toolbar__filter {
+  display: grid;
+  gap: 4px;
+  color: #6b7280;
+  font-size: 0.72rem;
+}
+
+.skill-tree-toolbar__filter select {
+  min-height: 34px;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid rgba(203, 213, 225, 0.96);
+  background: rgba(255, 255, 255, 0.92);
+  color: #1f2937;
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+
 .skill-tree-toolbar__actions {
   display: flex;
   align-items: center;

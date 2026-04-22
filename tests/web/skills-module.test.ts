@@ -14,6 +14,7 @@ import {
   interpretSkillTreeHotkey,
   moveSkillTreeSelection,
   resolveVisibleDropIndicator,
+  type SkillTreeFilterState,
   type SkillsSnapshot
 } from "../../apps/web/src/modules/skills/skills-model";
 import {
@@ -362,6 +363,37 @@ describe("skills module", () => {
       model.treeRoots,
       new Set(["nod_skill_frontend", "nod_skill_typescript"]),
       "frontend"
+    );
+
+    expect(visibleRows.map((row) => row.id)).toEqual([
+      "nod_skill_frontend",
+      "nod_skill_typescript"
+    ]);
+  });
+
+  it("derives available tag and color filters from the skill tree", () => {
+    const model = buildSkillsPanelModel(createSnapshot());
+
+    expect(model.availableTagFilters).toEqual([
+      "focus",
+      "frontend",
+      "leadership",
+      "technical"
+    ]);
+    expect(model.availableColorFilters).toEqual(["#3b82f6", "#8b5cf6"]);
+  });
+
+  it("filters the tree by tag and color while keeping parent context", () => {
+    const model = buildSkillsPanelModel(createSnapshot());
+    const filters: SkillTreeFilterState = {
+      tag: "technical",
+      color: "#8b5cf6"
+    };
+
+    const visibleRows = flattenVisibleSkillTree(
+      model.treeRoots,
+      new Set(["nod_skill_frontend", "nod_skill_typescript"]),
+      filters
     );
 
     expect(visibleRows.map((row) => row.id)).toEqual([
