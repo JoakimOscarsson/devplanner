@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.nx/
+.turbo/
+.DS_Store
+.env
+.env.local
+.pnpm-store/
+pnpm-debug.log*
+* [0-9].md

@@ -1,0 +1,188 @@
+services:
+  workspace-deps:
+    image: node:23-alpine
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+    command: sh -c "corepack enable && pnpm install && pnpm build:packages"
+    environment:
+      CI: "true"
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: pdp_helper
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  nats:
+    image: nats:2.11-alpine
+    command: ["-js"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats-data:/data
+
+  gateway:
+    image: node:23-alpine
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+    command: sh -c "corepack enable && pnpm --filter @pdp-helper/gateway dev"
+    environment:
+      CI: "true"
+      PORT: 4000
+      GRAPH_SERVICE_URL: http://graph-service:4101
+      PLANNER_SERVICE_URL: http://planner-service:4102
+      TRACKER_SERVICE_URL: http://tracker-service:4103
+      RECOMMENDATION_SERVICE_URL: http://recommendation-service:4104
+      MCP_SERVICE_URL: http://mcp-service:4105
+    depends_on:
+      workspace-deps:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_started
+      nats:
+        condition: service_started
+    ports:
+      - "4000:4000"
+
+  graph-service:
+    image: node:23-alpine
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+    command: sh -c "corepack enable && pnpm --filter @pdp-helper/graph-service dev"
+    environment:
+      CI: "true"
+      PORT: 4101
+      SERVICE_NAME: graph-service
+      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/pdp_helper
+    depends_on:
+      workspace-deps:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_started
+      nats:
+        condition: service_started
+
+  planner-service:
+    image: node:23-alpine
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+    command: sh -c "corepack enable && pnpm --filter @pdp-helper/planner-service dev"
+    environment:
+      CI: "true"
+      PORT: 4102
+      SERVICE_NAME: planner-service
+      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/pdp_helper
+    depends_on:
+      workspace-deps:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_started
+      nats:
+        condition: service_started
+
+  tracker-service:
+    image: node:23-alpine
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+    command: sh -c "corepack enable && pnpm --filter @pdp-helper/tracker-service dev"
+    environment:
+      CI: "true"
+      PORT: 4103
+      SERVICE_NAME: tracker-service
+      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/pdp_helper
+    depends_on:
+      workspace-deps:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_started
+      nats:
+        condition: service_started
+
+  recommendation-service:
+    image: node:23-alpine
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+    command: sh -c "corepack enable && pnpm --filter @pdp-helper/recommendation-service dev"
+    environment:
+      CI: "true"
+      PORT: 4104
+      SERVICE_NAME: recommendation-service
+      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/pdp_helper
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      CF_ACCESS_CLIENT_ID: ${CF_ACCESS_CLIENT_ID:-}
+      CF_ACCESS_CLIENT_SECRET: ${CF_ACCESS_CLIENT_SECRET:-}
+    depends_on:
+      workspace-deps:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_started
+      nats:
+        condition: service_started
+
+  mcp-service:
+    image: node:23-alpine
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+    command: sh -c "corepack enable && pnpm --filter @pdp-helper/mcp-service dev"
+    environment:
+      CI: "true"
+      PORT: 4105
+      GRAPH_SERVICE_URL: http://graph-service:4101
+      PLANNER_SERVICE_URL: http://planner-service:4102
+      RECOMMENDATION_SERVICE_URL: http://recommendation-service:4104
+    depends_on:
+      workspace-deps:
+        condition: service_completed_successfully
+      graph-service:
+        condition: service_started
+      planner-service:
+        condition: service_started
+      recommendation-service:
+        condition: service_started
+
+  web:
+    image: node:23-alpine
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+    command: sh -c "corepack enable && pnpm --filter @pdp-helper/web dev -- --host 0.0.0.0"
+    environment:
+      CI: "true"
+      VITE_GATEWAY_URL: http://localhost:4000
+    depends_on:
+      workspace-deps:
+        condition: service_completed_successfully
+      gateway:
+        condition: service_started
+    ports:
+      - "5173:5173"
+
+volumes:
+  postgres-data:
+  nats-data:
+  workspace-node-modules:

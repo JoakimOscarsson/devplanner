@@ -1,0 +1,27 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "ignoreDeprecations": "6.0",
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@pdp-helper/contracts-core": ["../../packages/contracts-core/src/index.ts"],
+      "@pdp-helper/contracts-graph": ["../../packages/contracts-graph/src/index.ts"],
+      "@pdp-helper/contracts-planner": ["../../packages/contracts-planner/src/index.ts"],
+      "@pdp-helper/contracts-recommendation": ["../../packages/contracts-recommendation/src/index.ts"],
+      "@pdp-helper/contracts-tracker": ["../../packages/contracts-tracker/src/index.ts"],
+      "@pdp-helper/runtime-web": ["../../packages/runtime-web/src/index.ts"],
+      "@pdp-helper/ui-graph": ["../../packages/ui-graph/src/index.ts"],
+      "@pdp-helper/ui-shell": ["../../packages/ui-shell/src/index.ts"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "vite.config.ts"
+  ]
+}

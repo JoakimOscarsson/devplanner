@@ -1,0 +1,50 @@
+{
+  "name": "pdp-helper",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=23.11.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:packages": "pnpm -r --filter @pdp-helper/contracts-core --filter @pdp-helper/contracts-graph --filter @pdp-helper/contracts-planner --filter @pdp-helper/contracts-tracker --filter @pdp-helper/contracts-recommendation --filter @pdp-helper/contracts-mcp --filter @pdp-helper/runtime-node --filter @pdp-helper/runtime-web --filter @pdp-helper/ui-graph --filter @pdp-helper/ui-shell --if-present build",
+    "dev": "pnpm build:packages && pnpm --parallel --filter @pdp-helper/web --filter @pdp-helper/gateway --filter @pdp-helper/graph-service --filter @pdp-helper/planner-service --filter @pdp-helper/tracker-service --filter @pdp-helper/recommendation-service --filter @pdp-helper/mcp-service dev",
+    "dev:web": "pnpm build:packages && pnpm --filter @pdp-helper/web dev",
+    "dev:gateway": "pnpm build:packages && pnpm --filter @pdp-helper/gateway dev",
+    "dev:graph": "pnpm build:packages && pnpm --filter @pdp-helper/graph-service dev",
+    "dev:planner": "pnpm build:packages && pnpm --filter @pdp-helper/planner-service dev",
+    "dev:tracker": "pnpm build:packages && pnpm --filter @pdp-helper/tracker-service dev",
+    "dev:recommendations": "pnpm build:packages && pnpm --filter @pdp-helper/recommendation-service dev",
+    "dev:mcp": "pnpm build:packages && pnpm --filter @pdp-helper/mcp-service dev",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm build && pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test && pnpm test:contracts && pnpm test:runtime && pnpm test:deps",
+    "test:contracts": "vitest run tests/contracts",
+    "test:runtime": "vitest run tests/runtime",
+    "test:deps": "node tools/check-dependencies.mjs",
+    "test:e2e": "echo \"No end-to-end suite is wired yet.\"",
+    "lint": "eslint . && pnpm test:deps",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "nx:graph": "nx graph"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^25.6.0",
+    "eslint": "^9.39.1",
+    "globals": "^16.4.0",
+    "nx": "^22.6.5",
+    "prettier": "^3.6.2",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.46.2",
+    "vitest": "^4.1.5"
+  }
+}
