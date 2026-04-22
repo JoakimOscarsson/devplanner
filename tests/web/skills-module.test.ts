@@ -403,4 +403,27 @@ describe("skills module", () => {
     expect(model.inventorySummary.totalCanonicalSkills).toBe(0);
     expect(model.hiddenFeatureNotes.length).toBeGreaterThan(0);
   });
+
+  it("falls back to canonical inventory rows when the graph has no root skills", () => {
+    const snapshot = createSnapshot();
+    const rootlessNodes = snapshot.skillGraph!.nodes.map((node) =>
+      node.role === "skill"
+        ? {
+            ...node,
+            parentNodeId: "nod_parent_missing" as never
+          }
+        : node
+    );
+
+    const model = buildSkillsPanelModel({
+      ...snapshot,
+      skillGraph: {
+        ...snapshot.skillGraph!,
+        nodes: rootlessNodes
+      }
+    });
+
+    expect(model.treeRoots.map((node) => node.label)).toContain("Frontend");
+    expect(model.treeRoots.every((node) => node.kind === "skill")).toBe(true);
+  });
 });

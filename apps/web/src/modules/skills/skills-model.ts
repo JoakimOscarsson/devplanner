@@ -190,6 +190,50 @@ function buildSkillTreeNode(input: {
   };
 }
 
+function buildFallbackInventoryTreeRoots(
+  snapshot: SkillsSnapshot,
+  skillGraphNodes: readonly GraphNode[]
+) {
+  const canonicalSkillNodesBySkillId = new Map<Skill["id"], GraphNode>();
+
+  for (const node of skillGraphNodes) {
+    if (!isSkillNode(node)) {
+      continue;
+    }
+
+    const skillId = readSkillIdFromNode(node);
+
+    if (skillId && !canonicalSkillNodesBySkillId.has(skillId)) {
+      canonicalSkillNodesBySkillId.set(skillId, node);
+    }
+  }
+
+  return [...snapshot.inventory]
+    .sort(compareInventory)
+    .map((entry, index) => {
+      const backingNode =
+        canonicalSkillNodesBySkillId.get(entry.skillId as Skill["id"]) ??
+        (typeof entry.sourceNodeId === "string"
+          ? skillGraphNodes.find((node) => node.id === entry.sourceNodeId)
+          : undefined);
+
+      return {
+        id: backingNode?.id ?? (`fallback_${entry.skillId}` as GraphNode["id"]),
+        label: entry.canonicalLabel,
+        kind: "skill" as const,
+        skillId: entry.skillId as Skill["id"],
+        description:
+          typeof backingNode?.description === "string" ? backingNode.description : undefined,
+        tag: backingNode ? readStringMetadata(backingNode, "tag") : undefined,
+        color: backingNode ? readStringMetadata(backingNode, "color") : undefined,
+        sortOrder:
+          (backingNode ? readNumberMetadata(backingNode, "sortOrder") : undefined) ?? index,
+        meta: "Skill",
+        children: []
+      } satisfies SkillTreeNodeModel;
+    });
+}
+
 function filterTreeByQuery(
   nodes: readonly SkillTreeNodeModel[],
   query: string
@@ -349,6 +393,10 @@ export function buildSkillsPanelModel(snapshot: SkillsSnapshot): SkillsPanelMode
       lineage: new Set()
     })
   );
+  const resolvedTreeRoots =
+    treeRoots.length > 0
+      ? treeRoots
+      : buildFallbackInventoryTreeRoots(snapshot, skillGraphNodes);
 
   return {
     inventorySummary: {
@@ -357,7 +405,7 @@ export function buildSkillsPanelModel(snapshot: SkillsSnapshot): SkillsPanelMode
       totalReferenceNodes: snapshot.summary.totalReferenceNodes,
       totalSkillGraphNodes: snapshot.summary.totalSkillGraphNodes
     },
-    treeRoots,
+    treeRoots: resolvedTreeRoots,
     hiddenFeatureNotes: TEMPORARILY_HIDDEN_SKILLTREE_FEATURES
   };
 }
