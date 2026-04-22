@@ -47,8 +47,8 @@ export interface SkillTreeDropIndicatorModel {
 
 export interface SkillTreeFilterState {
   readonly query?: string;
-  readonly tag?: string;
-  readonly color?: string;
+  readonly tags?: readonly string[];
+  readonly colors?: readonly string[];
 }
 
 export type SkillTreeHotkeyAction =
@@ -308,11 +308,15 @@ function filterTreeByCriteria(
   filters: SkillTreeFilterState
 ): SkillTreeNodeModel[] {
   const normalizedQuery = filters.query?.trim().toLowerCase() ?? "";
-  const normalizedTag = filters.tag?.trim().toLowerCase() ?? "";
-  const normalizedColor = filters.color?.trim().toLowerCase() ?? "";
+  const normalizedTags = (filters.tags ?? [])
+    .map((tag) => tag.trim().toLowerCase())
+    .filter((tag) => tag.length > 0);
+  const normalizedColors = (filters.colors ?? [])
+    .map((color) => color.trim().toLowerCase())
+    .filter((color) => color.length > 0);
   const hasQuery = normalizedQuery.length > 0;
-  const hasTag = normalizedTag.length > 0;
-  const hasColor = normalizedColor.length > 0;
+  const hasTag = normalizedTags.length > 0;
+  const hasColor = normalizedColors.length > 0;
 
   if (!hasQuery && !hasTag && !hasColor) {
     return [...nodes];
@@ -324,8 +328,12 @@ function filterTreeByCriteria(
       .filter((value): value is string => typeof value === "string" && value.length > 0)
       .some((value) => value.toLowerCase().includes(normalizedQuery));
     const matchesTag =
-      !hasTag || node.tags.some((tag) => tag.toLowerCase() === normalizedTag);
-    const matchesColor = !hasColor || node.color?.toLowerCase() === normalizedColor;
+      !hasTag ||
+      node.tags.some((tag) => normalizedTags.includes(tag.toLowerCase()));
+    const matchesColor =
+      !hasColor ||
+      (typeof node.color === "string" &&
+        normalizedColors.includes(node.color.toLowerCase()));
     const matchesNode =
       (!hasQuery || matchesQuery) && matchesTag && matchesColor;
 
@@ -376,8 +384,8 @@ export function flattenVisibleSkillTree(
   const rows: VisibleSkillTreeRowModel[] = [];
   const alwaysExpand =
     Boolean(normalizedFilters.query?.trim()) ||
-    Boolean(normalizedFilters.tag?.trim()) ||
-    Boolean(normalizedFilters.color?.trim());
+    (normalizedFilters.tags?.length ?? 0) > 0 ||
+    (normalizedFilters.colors?.length ?? 0) > 0;
 
   flattenSkillTreeNodes(filteredRoots, expandedIds, 0, rows, alwaysExpand);
 

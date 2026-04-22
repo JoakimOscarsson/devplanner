@@ -386,8 +386,8 @@ describe("skills module", () => {
   it("filters the tree by tag and color while keeping parent context", () => {
     const model = buildSkillsPanelModel(createSnapshot());
     const filters: SkillTreeFilterState = {
-      tag: "technical",
-      color: "#8b5cf6"
+      tags: ["technical"],
+      colors: ["#8b5cf6"]
     };
 
     const visibleRows = flattenVisibleSkillTree(
@@ -501,6 +501,7 @@ describe("skills module", () => {
     expect(markup).toContain("Search skills...");
     expect(markup).toContain("Add Root Skill");
     expect(markup).toContain("Multi-select");
+    expect(markup).toContain("Open filters");
     expect(markup).toContain("Frontend");
     expect(markup).toContain("Skill tree ready.");
     expect(markup).toContain("skill-tree__item--branch");

@@ -330,6 +330,20 @@ function SkillActionIcon({ kind }: { readonly kind: "add" | "edit" | "delete" })
   );
 }
 
+function FilterIcon() {
+  return (
+    <svg aria-hidden="true" className="skill-tree__action-icon" viewBox="0 0 12 12" fill="none">
+      <path
+        d="M2 3h8M3.5 6h5M5 9h2"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.25"
+      />
+    </svg>
+  );
+}
+
 function SkillEditorModal({
   state,
   draft,
@@ -594,7 +608,11 @@ export function SkillsSpotlight({
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [multiSelectEnabled, setMultiSelectEnabled] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeFilters, setActiveFilters] = useState<SkillTreeFilterState>({});
+  const [activeFilters, setActiveFilters] = useState<SkillTreeFilterState>({
+    tags: [],
+    colors: []
+  });
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [editorState, setEditorState] = useState<SkillEditorState | null>(null);
   const [editorDraft, setEditorDraft] = useState<SkillEditorDraft>(createEmptyDraft);
   const [pendingMutation, setPendingMutation] = useState(false);
@@ -607,6 +625,8 @@ export function SkillsSpotlight({
   }));
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const treeSurfaceRef = useRef<HTMLElement | null>(null);
+  const filterButtonRef = useRef<HTMLButtonElement | null>(null);
+  const filterPanelRef = useRef<HTMLDivElement | null>(null);
   const didInitializeExpansion = useRef(false);
   const didAutoFocusTreeSurface = useRef(false);
 
@@ -677,10 +697,10 @@ export function SkillsSpotlight({
     () =>
       flattenVisibleSkillTree(model.treeRoots, expandedIds, {
         query: deferredSearchQuery,
-        tag: activeFilters.tag,
-        color: activeFilters.color
+        tags: activeFilters.tags,
+        colors: activeFilters.colors
       }),
-    [activeFilters.color, activeFilters.tag, deferredSearchQuery, expandedIds, model.treeRoots]
+    [activeFilters.colors, activeFilters.tags, deferredSearchQuery, expandedIds, model.treeRoots]
   );
   const visibleDropIndicator = useMemo(
     () => resolveVisibleDropIndicator(visibleRows, dropIndicator),
@@ -691,6 +711,8 @@ export function SkillsSpotlight({
   const selectedRow = visibleRows.find((row) => row.id === activeRowId) ?? null;
   const bulkSelectionCount = selectedNodeIds.size;
   const bulkSelectionActive = multiSelectEnabled && bulkSelectionCount > 1;
+  const hasActiveFilters =
+    (activeFilters.tags?.length ?? 0) > 0 || (activeFilters.colors?.length ?? 0) > 0;
   const activeParentNode =
     editorState?.parentNodeId
       ? findTreeNodeById(model.treeRoots, editorState.parentNodeId)
@@ -773,6 +795,32 @@ export function SkillsSpotlight({
       return;
     }
   }, [childCreateDefaults]);
+
+  useEffect(() => {
+    if (!filterMenuOpen) {
+      return;
+    }
+
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target;
+
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (filterPanelRef.current?.contains(target) || filterButtonRef.current?.contains(target)) {
+        return;
+      }
+
+      setFilterMenuOpen(false);
+    }
+
+    window.addEventListener("pointerdown", onPointerDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [filterMenuOpen]);
 
   function toggleNode(nodeId: string) {
     setExpandedIds((current) => {
@@ -861,6 +909,30 @@ export function SkillsSpotlight({
     });
     setSelectedNodeId(null);
     setHoveredNodeId(null);
+  }
+
+  function toggleFilterValue(kind: "tags" | "colors", value: string) {
+    setActiveFilters((current) => {
+      const nextValues = new Set(current[kind] ?? []);
+
+      if (nextValues.has(value)) {
+        nextValues.delete(value);
+      } else {
+        nextValues.add(value);
+      }
+
+      return {
+        ...current,
+        [kind]: [...nextValues]
+      };
+    });
+  }
+
+  function clearFilters() {
+    setActiveFilters({
+      tags: [],
+      colors: []
+    });
   }
 
   function handleRowSelection(nodeId: string) {
@@ -1169,49 +1241,80 @@ export function SkillsSpotlight({
             />
           </label>
 
-          <div className="skill-tree-toolbar__filters">
-            <label className="skill-tree-toolbar__filter">
-              <span>Tag</span>
-              <select
-                value={activeFilters.tag ?? ""}
-                onChange={(event) =>
-                  setActiveFilters((current) => ({
-                    ...current,
-                    tag: event.target.value || undefined
-                  }))
-                }
-              >
-                <option value="">All tags</option>
-                {model.availableTagFilters.map((tag) => (
-                  <option key={tag} value={tag}>
-                    {tag}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="skill-tree-toolbar__filter">
-              <span>Color</span>
-              <select
-                value={activeFilters.color ?? ""}
-                onChange={(event) =>
-                  setActiveFilters((current) => ({
-                    ...current,
-                    color: event.target.value || undefined
-                  }))
-                }
-              >
-                <option value="">All colors</option>
-                {model.availableColorFilters.map((color) => (
-                  <option key={color} value={color}>
-                    {formatColorFilterLabel(color)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
           <div className="skill-tree-toolbar__actions">
+            <div className="skill-tree-toolbar__filter-anchor">
+              <button
+                ref={filterButtonRef}
+                type="button"
+                aria-label="Open filters"
+                aria-expanded={filterMenuOpen}
+                className={[
+                  "skill-tree-toolbar__button",
+                  "skill-tree-toolbar__button--secondary",
+                  "skill-tree-toolbar__button--icon",
+                  hasActiveFilters ? "skill-tree-toolbar__button--active-filter" : ""
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onClick={() => setFilterMenuOpen((current) => !current)}
+              >
+                <FilterIcon />
+              </button>
+
+              {filterMenuOpen ? (
+                <div ref={filterPanelRef} className="skill-tree-filter-popover">
+                  <div className="skill-tree-filter-popover__header">
+                    <strong>Filters</strong>
+                    <button
+                      type="button"
+                      className="skill-tree-filter-popover__clear"
+                      onClick={clearFilters}
+                    >
+                      Clear
+                    </button>
+                  </div>
+
+                  <div className="skill-tree-filter-popover__section">
+                    <span>Tags</span>
+                    <div className="skill-tree-filter-popover__options">
+                      {model.availableTagFilters.map((tag) => (
+                        <label key={tag} className="skill-tree-filter-popover__option">
+                          <input
+                            type="checkbox"
+                            checked={(activeFilters.tags ?? []).includes(tag)}
+                            onChange={() => toggleFilterValue("tags", tag)}
+                          />
+                          <span>{tag}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="skill-tree-filter-popover__section">
+                    <span>Colors</span>
+                    <div className="skill-tree-filter-popover__options">
+                      {model.availableColorFilters.map((color) => (
+                        <label key={color} className="skill-tree-filter-popover__option">
+                          <input
+                            type="checkbox"
+                            checked={(activeFilters.colors ?? []).includes(color)}
+                            onChange={() => toggleFilterValue("colors", color)}
+                          />
+                          <span className="skill-tree-filter-popover__color-label">
+                            <span
+                              className="skill-tree-filter-popover__color-dot"
+                              style={{ background: color }}
+                            />
+                            {formatColorFilterLabel(color)}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <button
               type="button"
               className={[
