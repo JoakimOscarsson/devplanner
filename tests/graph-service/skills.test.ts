@@ -260,6 +260,50 @@ describe("graph-service skill routes", () => {
     );
   });
 
+  it("treats C++ and C as distinct canonical skill labels", async () => {
+    const { baseUrl } = await startServer();
+
+    const createCppResponse = await fetch(`${baseUrl}/v1/skills/tree/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "C++"
+      })
+    });
+    const cppPayload = await readJson<{
+      skill: {
+        canonicalLabel: string;
+        normalizedLabel: string;
+      };
+    }>(createCppResponse);
+
+    expect(createCppResponse.status).toBe(201);
+    expect(cppPayload.skill.canonicalLabel).toBe("C++");
+    expect(cppPayload.skill.normalizedLabel).toBe("c-plus-plus");
+
+    const createCResponse = await fetch(`${baseUrl}/v1/skills/tree/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "C"
+      })
+    });
+    const cPayload = await readJson<{
+      skill: {
+        canonicalLabel: string;
+        normalizedLabel: string;
+      };
+    }>(createCResponse);
+
+    expect(createCResponse.status).toBe(201);
+    expect(cPayload.skill.canonicalLabel).toBe("C");
+    expect(cPayload.skill.normalizedLabel).toBe("c");
+  });
+
   it("resolves a duplicate by creating a reference node for an existing canonical skill", async () => {
     const { baseUrl } = await startServer();
 

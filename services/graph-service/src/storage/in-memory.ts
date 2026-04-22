@@ -108,6 +108,9 @@ function normalizeLabel(label: string) {
   return label
     .trim()
     .toLowerCase()
+    .replace(/\+\+/g, " plus plus ")
+    .replace(/\+/g, " plus ")
+    .replace(/#/g, " sharp ")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
