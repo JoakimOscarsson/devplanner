@@ -583,6 +583,7 @@ export function SkillsSpotlight({
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const treeSurfaceRef = useRef<HTMLElement | null>(null);
   const didInitializeExpansion = useRef(false);
+  const didAutoFocusTreeSurface = useRef(false);
 
   async function refreshSnapshot(note?: string, preferredSelectedNodeId?: string | null) {
     if (snapshot) {
@@ -693,10 +694,19 @@ export function SkillsSpotlight({
       return;
     }
 
-    if (!selectedNodeId || !visibleRows.some((row) => row.id === selectedNodeId)) {
-      setSelectedNodeId(visibleRows[0]!.id);
+    if (selectedNodeId && !visibleRows.some((row) => row.id === selectedNodeId)) {
+      setSelectedNodeId(null);
     }
   }, [selectedNodeId, visibleRows]);
+
+  useEffect(() => {
+    if (didAutoFocusTreeSurface.current || loading || editorState || visibleRows.length === 0) {
+      return;
+    }
+
+    didAutoFocusTreeSurface.current = true;
+    focusTreeSurface(treeSurfaceRef.current);
+  }, [editorState, loading, visibleRows.length]);
 
   useEffect(() => {
     setSelectedNodeIds((current) => {
@@ -805,8 +815,8 @@ export function SkillsSpotlight({
     setMultiSelectEnabled((current) => {
       if (current) {
         setSelectedNodeIds(new Set());
-      } else if (selectedNodeId) {
-        setSelectedNodeIds(new Set([selectedNodeId]));
+      } else {
+        setSelectedNodeIds(new Set());
       }
 
       return !current;
@@ -858,6 +868,8 @@ export function SkillsSpotlight({
           )
         );
 
+        setMultiSelectEnabled(false);
+        setSelectedNodeIds(new Set());
         await refreshSnapshot("Skills updated.", selectedNodeId);
       } else if (editorState.mode === "edit" && editorState.nodeId) {
         await gateway.updateSkillTreeNode({
@@ -942,7 +954,7 @@ export function SkillsSpotlight({
   async function removeSelectedNodes() {
     const targetNodeIds = collectTopLevelSelectedIds(model.treeRoots, selectedNodeIds);
 
-    if (targetNodeIds.length < 2) {
+    if (targetNodeIds.length === 0) {
       return;
     }
 
@@ -961,6 +973,7 @@ export function SkillsSpotlight({
         await gateway.deleteSkillTreeNode(nodeId as GraphNode["id"]);
       }
 
+      setMultiSelectEnabled(false);
       setSelectedNodeIds(new Set());
       await refreshSnapshot("Selected skills removed.");
       setError(null);
@@ -1167,7 +1180,7 @@ export function SkillsSpotlight({
           >
             {visibleRows.map((row) => {
               const isSelected =
-                row.id === selectedNodeId || (multiSelectEnabled && selectedNodeIds.has(row.id));
+                multiSelectEnabled ? selectedNodeIds.has(row.id) : row.id === selectedNodeId;
               const isExpanded = expandedIds.has(row.id);
               const isDropTarget =
                 visibleDropIndicator?.position === "before" &&

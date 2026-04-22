@@ -455,13 +455,13 @@ export function moveSkillTreeSelection(
   }
 
   if (!selectedId) {
-    return rows[0]!.id;
+    return direction > 0 ? rows[0]!.id : rows[rows.length - 1]!.id;
   }
 
   const currentIndex = rows.findIndex((row) => row.id === selectedId);
 
   if (currentIndex === -1) {
-    return rows[0]!.id;
+    return direction > 0 ? rows[0]!.id : rows[rows.length - 1]!.id;
   }
 
   const nextIndex = Math.max(0, Math.min(rows.length - 1, currentIndex + direction));

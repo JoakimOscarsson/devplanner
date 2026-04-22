@@ -83,7 +83,7 @@ describe("graph-service skill routes", () => {
     }>(response);
 
     expect(response.status).toBe(200);
-    expect(payload.summary.totalCanonicalSkills).toBe(2);
+    expect(payload.summary.totalCanonicalSkills).toBe(12);
     expect(payload.summary.totalReferenceNodes).toBe(2);
     expect(payload.skillGraph.canvas).toMatchObject({
       id: "can_skill_graph",
@@ -215,7 +215,7 @@ describe("graph-service skill routes", () => {
       }>;
     }>(inventoryResponse);
 
-    expect(inventoryPayload.summary.totalCanonicalSkills).toBe(3);
+    expect(inventoryPayload.summary.totalCanonicalSkills).toBe(13);
     expect(
       inventoryPayload.inventory.some(
         (skill) => skill.canonicalLabel === "AWS Developer Associate"
@@ -402,7 +402,7 @@ describe("graph-service skill routes", () => {
         description: "Design APIs with long-lived contracts.",
         tag: "technical",
         color: "#4f46e5",
-        parentNodeId: "nod_skill_event_architecture"
+        parentNodeId: "nod_skill_frontend"
       })
     });
     const payload = await readJson<{
@@ -418,7 +418,7 @@ describe("graph-service skill routes", () => {
       color: "#4f46e5"
     });
     expect(payload.skillNode.role).toBe("skill");
-    expect(payload.skillNode.parentNodeId).toBe("nod_skill_event_architecture");
+    expect(payload.skillNode.parentNodeId).toBe("nod_skill_frontend");
     expect(payload.skillNode.description).toBe("Design APIs with long-lived contracts.");
     expect(payload.skillNode.metadata).toMatchObject({
       tag: "technical",
@@ -440,7 +440,7 @@ describe("graph-service skill routes", () => {
       inventoryPayload.skillGraph.edges.some(
         (edge) =>
           edge.kind === "contains" &&
-          edge.sourceNodeId === "nod_skill_event_architecture" &&
+          edge.sourceNodeId === "nod_skill_frontend" &&
           edge.targetNodeId === payload.skillNode.id
       )
     ).toBe(true);
@@ -560,7 +560,7 @@ describe("graph-service skill routes", () => {
       },
       body: JSON.stringify({
         label: "Backend",
-        parentNodeId: "nod_skill_event_architecture"
+        parentNodeId: "nod_skill_databases"
       })
     });
     const firstCreatePayload = await readJson<{
@@ -574,7 +574,7 @@ describe("graph-service skill routes", () => {
       },
       body: JSON.stringify({
         label: "Integration Testing",
-        parentNodeId: "nod_skill_event_architecture"
+        parentNodeId: "nod_skill_databases"
       })
     });
     const secondCreatePayload = await readJson<{
@@ -589,7 +589,7 @@ describe("graph-service skill routes", () => {
           "content-type": "application/json"
         },
         body: JSON.stringify({
-          parentNodeId: "nod_skill_event_architecture",
+          parentNodeId: "nod_skill_databases",
           targetIndex: 0
         })
       }
@@ -617,7 +617,7 @@ describe("graph-service skill routes", () => {
     expect(
       payload.siblings.find((node) => node.id === firstCreatePayload.skillNode.id)?.metadata
     ).toMatchObject({
-      sortOrder: 2
+      sortOrder: 1
     });
   });
 

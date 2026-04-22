@@ -315,16 +315,80 @@ function graphSeed(): GraphSeed {
         ...auditFields()
       },
       {
+        id: "nod_skill_frontend" as GraphNode["id"],
+        canvasId: "can_skill_graph" as GraphNode["canvasId"],
+        role: "skill",
+        category: "skill",
+        label: "Frontend",
+        normalizedLabel: "frontend",
+        position: { x: 96, y: 64 },
+        source: "user",
+        metadata: {
+          skillId: "skl_frontend",
+          sortOrder: 0
+        },
+        ...auditFields()
+      },
+      {
+        id: "nod_skill_html_css" as GraphNode["id"],
+        canvasId: "can_skill_graph" as GraphNode["canvasId"],
+        role: "skill",
+        category: "skill",
+        label: "HTML & CSS",
+        normalizedLabel: "html-css",
+        parentNodeId: "nod_skill_frontend" as GraphNode["id"],
+        position: { x: 96, y: 148 },
+        source: "user",
+        metadata: {
+          skillId: "skl_html_css",
+          sortOrder: 0
+        },
+        ...auditFields()
+      },
+      {
         id: "nod_skill_typescript" as GraphNode["id"],
         canvasId: "can_skill_graph" as GraphNode["canvasId"],
         role: "skill",
         category: "skill",
         label: "TypeScript",
         normalizedLabel: "typescript",
-        position: { x: 96, y: 120 },
+        parentNodeId: "nod_skill_frontend" as GraphNode["id"],
+        position: { x: 248, y: 148 },
         source: "user",
         metadata: {
           skillId: "skl_typescript",
+          sortOrder: 1
+        },
+        ...auditFields()
+      },
+      {
+        id: "nod_skill_react" as GraphNode["id"],
+        canvasId: "can_skill_graph" as GraphNode["canvasId"],
+        role: "skill",
+        category: "skill",
+        label: "React",
+        normalizedLabel: "react",
+        parentNodeId: "nod_skill_frontend" as GraphNode["id"],
+        position: { x: 400, y: 148 },
+        source: "user",
+        metadata: {
+          skillId: "skl_react",
+          sortOrder: 2
+        },
+        ...auditFields()
+      },
+      {
+        id: "nod_skill_state_management" as GraphNode["id"],
+        canvasId: "can_skill_graph" as GraphNode["canvasId"],
+        role: "skill",
+        category: "skill",
+        label: "State Management",
+        normalizedLabel: "state-management",
+        parentNodeId: "nod_skill_typescript" as GraphNode["id"],
+        position: { x: 248, y: 232 },
+        source: "user",
+        metadata: {
+          skillId: "skl_state_management",
           sortOrder: 0
         },
         ...auditFields()
@@ -336,7 +400,7 @@ function graphSeed(): GraphSeed {
         category: "skill",
         label: "TypeScript for planning flows",
         normalizedLabel: "typescript-for-planning-flows",
-        position: { x: 96, y: 244 },
+        position: { x: 96, y: 312 },
         source: "user",
         parentNodeId: "nod_skill_typescript" as GraphNode["id"],
         metadata: {
@@ -352,11 +416,27 @@ function graphSeed(): GraphSeed {
         category: "skill",
         label: "Event-Driven Architecture",
         normalizedLabel: "event-driven-architecture",
-        position: { x: 320, y: 88 },
+        position: { x: 560, y: 64 },
         source: "user",
         metadata: {
           skillId: "skl_event_architecture",
           sortOrder: 1
+        },
+        ...auditFields()
+      },
+      {
+        id: "nod_skill_message_brokers" as GraphNode["id"],
+        canvasId: "can_skill_graph" as GraphNode["canvasId"],
+        role: "skill",
+        category: "skill",
+        label: "Message Brokers",
+        normalizedLabel: "message-brokers",
+        parentNodeId: "nod_skill_event_architecture" as GraphNode["id"],
+        position: { x: 560, y: 148 },
+        source: "user",
+        metadata: {
+          skillId: "skl_message_brokers",
+          sortOrder: 0
         },
         ...auditFields()
       },
@@ -367,11 +447,88 @@ function graphSeed(): GraphSeed {
         category: "skill",
         label: "Event architecture for certification path",
         normalizedLabel: "event-architecture-for-certification-path",
-        position: { x: 320, y: 228 },
+        position: { x: 560, y: 312 },
         source: "user",
         parentNodeId: "nod_skill_event_architecture" as GraphNode["id"],
         metadata: {
           skillId: "skl_event_architecture",
+          sortOrder: 1
+        },
+        ...auditFields()
+      },
+      {
+        id: "nod_skill_databases" as GraphNode["id"],
+        canvasId: "can_skill_graph" as GraphNode["canvasId"],
+        role: "skill",
+        category: "skill",
+        label: "Databases",
+        normalizedLabel: "databases",
+        position: { x: 768, y: 64 },
+        source: "user",
+        metadata: {
+          skillId: "skl_databases",
+          sortOrder: 2
+        },
+        ...auditFields()
+      },
+      {
+        id: "nod_skill_devops" as GraphNode["id"],
+        canvasId: "can_skill_graph" as GraphNode["canvasId"],
+        role: "skill",
+        category: "skill",
+        label: "DevOps & Infrastructure",
+        normalizedLabel: "devops-infrastructure",
+        position: { x: 976, y: 64 },
+        source: "user",
+        metadata: {
+          skillId: "skl_devops_infrastructure",
+          sortOrder: 3
+        },
+        ...auditFields()
+      },
+      {
+        id: "nod_skill_ci_cd" as GraphNode["id"],
+        canvasId: "can_skill_graph" as GraphNode["canvasId"],
+        role: "skill",
+        category: "skill",
+        label: "CI/CD",
+        normalizedLabel: "ci-cd",
+        parentNodeId: "nod_skill_devops" as GraphNode["id"],
+        position: { x: 976, y: 148 },
+        source: "user",
+        metadata: {
+          skillId: "skl_ci_cd",
+          sortOrder: 0
+        },
+        ...auditFields()
+      },
+      {
+        id: "nod_skill_leadership" as GraphNode["id"],
+        canvasId: "can_skill_graph" as GraphNode["canvasId"],
+        role: "skill",
+        category: "skill",
+        label: "Leadership",
+        normalizedLabel: "leadership",
+        position: { x: 1184, y: 64 },
+        source: "user",
+        metadata: {
+          skillId: "skl_leadership",
+          sortOrder: 4
+        },
+        ...auditFields()
+      },
+      {
+        id: "nod_skill_mentoring" as GraphNode["id"],
+        canvasId: "can_skill_graph" as GraphNode["canvasId"],
+        role: "skill",
+        category: "skill",
+        label: "Mentoring",
+        normalizedLabel: "mentoring",
+        parentNodeId: "nod_skill_leadership" as GraphNode["id"],
+        position: { x: 1184, y: 148 },
+        source: "user",
+        metadata: {
+          skillId: "skl_mentoring",
           sortOrder: 0
         },
         ...auditFields()
@@ -407,6 +564,38 @@ function graphSeed(): GraphSeed {
         ...auditFields()
       },
       {
+        id: "edg_skill_frontend_html_css" as GraphEdge["id"],
+        canvasId: "can_skill_graph" as GraphEdge["canvasId"],
+        sourceNodeId: "nod_skill_frontend" as GraphEdge["sourceNodeId"],
+        targetNodeId: "nod_skill_html_css" as GraphEdge["targetNodeId"],
+        kind: "contains",
+        ...auditFields()
+      },
+      {
+        id: "edg_skill_frontend_typescript" as GraphEdge["id"],
+        canvasId: "can_skill_graph" as GraphEdge["canvasId"],
+        sourceNodeId: "nod_skill_frontend" as GraphEdge["sourceNodeId"],
+        targetNodeId: "nod_skill_typescript" as GraphEdge["targetNodeId"],
+        kind: "contains",
+        ...auditFields()
+      },
+      {
+        id: "edg_skill_frontend_react" as GraphEdge["id"],
+        canvasId: "can_skill_graph" as GraphEdge["canvasId"],
+        sourceNodeId: "nod_skill_frontend" as GraphEdge["sourceNodeId"],
+        targetNodeId: "nod_skill_react" as GraphEdge["targetNodeId"],
+        kind: "contains",
+        ...auditFields()
+      },
+      {
+        id: "edg_skill_typescript_state_management" as GraphEdge["id"],
+        canvasId: "can_skill_graph" as GraphEdge["canvasId"],
+        sourceNodeId: "nod_skill_typescript" as GraphEdge["sourceNodeId"],
+        targetNodeId: "nod_skill_state_management" as GraphEdge["targetNodeId"],
+        kind: "contains",
+        ...auditFields()
+      },
+      {
         id: "edg_skill_event_architecture_reference" as GraphEdge["id"],
         canvasId: "can_skill_graph" as GraphEdge["canvasId"],
         sourceNodeId: "nod_skill_event_architecture" as GraphEdge["sourceNodeId"],
@@ -414,9 +603,47 @@ function graphSeed(): GraphSeed {
           "nod_reference_event_architecture_cert" as GraphEdge["targetNodeId"],
         kind: "contains",
         ...auditFields()
+      },
+      {
+        id: "edg_skill_event_architecture_message_brokers" as GraphEdge["id"],
+        canvasId: "can_skill_graph" as GraphEdge["canvasId"],
+        sourceNodeId: "nod_skill_event_architecture" as GraphEdge["sourceNodeId"],
+        targetNodeId: "nod_skill_message_brokers" as GraphEdge["targetNodeId"],
+        kind: "contains",
+        ...auditFields()
+      },
+      {
+        id: "edg_skill_devops_ci_cd" as GraphEdge["id"],
+        canvasId: "can_skill_graph" as GraphEdge["canvasId"],
+        sourceNodeId: "nod_skill_devops" as GraphEdge["sourceNodeId"],
+        targetNodeId: "nod_skill_ci_cd" as GraphEdge["targetNodeId"],
+        kind: "contains",
+        ...auditFields()
+      },
+      {
+        id: "edg_skill_leadership_mentoring" as GraphEdge["id"],
+        canvasId: "can_skill_graph" as GraphEdge["canvasId"],
+        sourceNodeId: "nod_skill_leadership" as GraphEdge["sourceNodeId"],
+        targetNodeId: "nod_skill_mentoring" as GraphEdge["targetNodeId"],
+        kind: "contains",
+        ...auditFields()
       }
     ] satisfies EdgeRecord[],
     skills: [
+      {
+        id: "skl_frontend" as Skill["id"],
+        canonicalLabel: "Frontend",
+        normalizedLabel: "frontend",
+        sourceNodeId: "nod_skill_frontend" as Skill["sourceNodeId"],
+        ...auditFields()
+      },
+      {
+        id: "skl_html_css" as Skill["id"],
+        canonicalLabel: "HTML & CSS",
+        normalizedLabel: "html-css",
+        sourceNodeId: "nod_skill_html_css" as Skill["sourceNodeId"],
+        ...auditFields()
+      },
       {
         id: "skl_typescript" as Skill["id"],
         canonicalLabel: "TypeScript",
@@ -425,10 +652,66 @@ function graphSeed(): GraphSeed {
         ...auditFields()
       },
       {
+        id: "skl_react" as Skill["id"],
+        canonicalLabel: "React",
+        normalizedLabel: "react",
+        sourceNodeId: "nod_skill_react" as Skill["sourceNodeId"],
+        ...auditFields()
+      },
+      {
+        id: "skl_state_management" as Skill["id"],
+        canonicalLabel: "State Management",
+        normalizedLabel: "state-management",
+        sourceNodeId: "nod_skill_state_management" as Skill["sourceNodeId"],
+        ...auditFields()
+      },
+      {
         id: "skl_event_architecture" as Skill["id"],
         canonicalLabel: "Event-Driven Architecture",
         normalizedLabel: "event-driven-architecture",
         sourceNodeId: "nod_skill_event_architecture" as Skill["sourceNodeId"],
+        ...auditFields()
+      },
+      {
+        id: "skl_message_brokers" as Skill["id"],
+        canonicalLabel: "Message Brokers",
+        normalizedLabel: "message-brokers",
+        sourceNodeId: "nod_skill_message_brokers" as Skill["sourceNodeId"],
+        ...auditFields()
+      },
+      {
+        id: "skl_databases" as Skill["id"],
+        canonicalLabel: "Databases",
+        normalizedLabel: "databases",
+        sourceNodeId: "nod_skill_databases" as Skill["sourceNodeId"],
+        ...auditFields()
+      },
+      {
+        id: "skl_devops_infrastructure" as Skill["id"],
+        canonicalLabel: "DevOps & Infrastructure",
+        normalizedLabel: "devops-infrastructure",
+        sourceNodeId: "nod_skill_devops" as Skill["sourceNodeId"],
+        ...auditFields()
+      },
+      {
+        id: "skl_ci_cd" as Skill["id"],
+        canonicalLabel: "CI/CD",
+        normalizedLabel: "ci-cd",
+        sourceNodeId: "nod_skill_ci_cd" as Skill["sourceNodeId"],
+        ...auditFields()
+      },
+      {
+        id: "skl_leadership" as Skill["id"],
+        canonicalLabel: "Leadership",
+        normalizedLabel: "leadership",
+        sourceNodeId: "nod_skill_leadership" as Skill["sourceNodeId"],
+        ...auditFields()
+      },
+      {
+        id: "skl_mentoring" as Skill["id"],
+        canonicalLabel: "Mentoring",
+        normalizedLabel: "mentoring",
+        sourceNodeId: "nod_skill_mentoring" as Skill["sourceNodeId"],
         ...auditFields()
       }
     ] satisfies SkillRecord[]

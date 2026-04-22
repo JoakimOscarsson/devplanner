@@ -346,6 +346,8 @@ describe("skills module", () => {
       "nod_skill_typescript"
     );
     expect(moveSkillTreeSelection(rows, "nod_skill_typescript", -1)).toBe("nod_skill_frontend");
+    expect(moveSkillTreeSelection(rows, null, 1)).toBe("nod_skill_frontend");
+    expect(moveSkillTreeSelection(rows, null, -1)).toBe("nod_skill_typescript");
   });
 
   it("formats and filters multiple tags as a single searchable field", () => {

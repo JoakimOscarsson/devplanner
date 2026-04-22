@@ -7,3 +7,5 @@
 - The skill-tree page currently exposes a compact tree UI with search, keyboard navigation, drag reorder, multi-select, bulk edit/delete, and modal editing for label, description, tags, and color.
 - Skill-tag inputs accept comma- or semicolon-separated values and preserve multiple tags across edit flows.
 - Clearing a skill color in the modal sends an explicit `null` update so the backend removes the stored color.
+- The skill-tree surface autofocuses on page load so arrow keys and create/edit shortcuts work without an initial click.
+- Entering multi-select mode starts with an empty selection, and bulk actions automatically return the page to single-select mode after they complete.
