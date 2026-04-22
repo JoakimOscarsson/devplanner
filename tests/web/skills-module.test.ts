@@ -17,6 +17,7 @@ import {
   type SkillsSnapshot
 } from "../../apps/web/src/modules/skills/skills-model";
 import {
+  resolveSkillTreeBulkDeleteSummary,
   shouldCloseSkillEditorFromPointerInteraction,
   resolveSkillTreeDropIndicatorFromPointer,
   resolveSkillTreeSelectionFromPointer,
@@ -441,6 +442,19 @@ describe("skills module", () => {
     ).toEqual({
       targetNodeId: "nod_skill_typescript",
       position: "after"
+    });
+  });
+
+  it("counts descendant skills in bulk delete confirmations", () => {
+    const model = buildSkillsPanelModel(createSnapshot());
+    const deleteSummary = resolveSkillTreeBulkDeleteSummary(
+      model.treeRoots,
+      new Set(["nod_skill_frontend"])
+    );
+
+    expect(deleteSummary).toEqual({
+      topLevelCount: 1,
+      totalCount: 2
     });
   });
 

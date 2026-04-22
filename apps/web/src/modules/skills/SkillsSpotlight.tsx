@@ -69,6 +69,11 @@ type SkillTreeSelectionInput = {
   readonly draggedNodeId: string | null;
 };
 
+type SkillTreeBulkDeleteSummary = {
+  readonly topLevelCount: number;
+  readonly totalCount: number;
+};
+
 const COLOR_OPTIONS = [
   "",
   "#ef4444",
@@ -140,6 +145,19 @@ export function resolveSkillTreeDropIndicatorFromPointer(input: {
   return {
     targetNodeId: input.rowId,
     position: "before"
+  };
+}
+
+export function resolveSkillTreeBulkDeleteSummary(
+  treeRoots: readonly SkillTreeNodeModel[],
+  selectedNodeIds: ReadonlySet<string>
+): SkillTreeBulkDeleteSummary {
+  const topLevelIds = collectTopLevelSelectedIds(treeRoots, selectedNodeIds);
+  const totalNodeIds = collectBulkTargetIds(treeRoots, new Set(topLevelIds), true);
+
+  return {
+    topLevelCount: topLevelIds.length,
+    totalCount: totalNodeIds.length
   };
 }
 
@@ -568,6 +586,7 @@ export function SkillsSpotlight({
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<ReadonlySet<string>>(new Set());
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [multiSelectEnabled, setMultiSelectEnabled] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [editorState, setEditorState] = useState<SkillEditorState | null>(null);
@@ -657,7 +676,8 @@ export function SkillsSpotlight({
     [dropIndicator, visibleRows]
   );
   const lastVisibleRowId = visibleRows[visibleRows.length - 1]?.id ?? null;
-  const selectedRow = visibleRows.find((row) => row.id === selectedNodeId) ?? null;
+  const activeRowId = hoveredNodeId ?? selectedNodeId;
+  const selectedRow = visibleRows.find((row) => row.id === activeRowId) ?? null;
   const bulkSelectionCount = selectedNodeIds.size;
   const bulkSelectionActive = multiSelectEnabled && bulkSelectionCount > 1;
   const activeParentNode =
@@ -690,6 +710,9 @@ export function SkillsSpotlight({
       if (selectedNodeId !== null) {
         setSelectedNodeId(null);
       }
+      if (hoveredNodeId !== null) {
+        setHoveredNodeId(null);
+      }
       setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
       return;
     }
@@ -697,7 +720,11 @@ export function SkillsSpotlight({
     if (selectedNodeId && !visibleRows.some((row) => row.id === selectedNodeId)) {
       setSelectedNodeId(null);
     }
-  }, [selectedNodeId, visibleRows]);
+
+    if (hoveredNodeId && !visibleRows.some((row) => row.id === hoveredNodeId)) {
+      setHoveredNodeId(null);
+    }
+  }, [hoveredNodeId, selectedNodeId, visibleRows]);
 
   useEffect(() => {
     if (didAutoFocusTreeSurface.current || loading || editorState || visibleRows.length === 0) {
@@ -821,10 +848,13 @@ export function SkillsSpotlight({
 
       return !current;
     });
+    setSelectedNodeId(null);
+    setHoveredNodeId(null);
   }
 
   function handleRowSelection(nodeId: string) {
     setSelectedNodeId(nodeId);
+    setHoveredNodeId(nodeId);
 
     if (!multiSelectEnabled) {
       return;
@@ -870,6 +900,8 @@ export function SkillsSpotlight({
 
         setMultiSelectEnabled(false);
         setSelectedNodeIds(new Set());
+        setSelectedNodeId(null);
+        setHoveredNodeId(null);
         await refreshSnapshot("Skills updated.", selectedNodeId);
       } else if (editorState.mode === "edit" && editorState.nodeId) {
         await gateway.updateSkillTreeNode({
@@ -952,15 +984,16 @@ export function SkillsSpotlight({
   }
 
   async function removeSelectedNodes() {
+    const deleteSummary = resolveSkillTreeBulkDeleteSummary(model.treeRoots, selectedNodeIds);
     const targetNodeIds = collectTopLevelSelectedIds(model.treeRoots, selectedNodeIds);
 
-    if (targetNodeIds.length === 0) {
+    if (deleteSummary.topLevelCount === 0) {
       return;
     }
 
     const allowDelete =
       typeof window === "undefined" ||
-      window.confirm(`Remove ${targetNodeIds.length} selected skills from the skill tree?`);
+      window.confirm(`Remove ${deleteSummary.totalCount} skills from the skill tree?`);
 
     if (!allowDelete) {
       return;
@@ -975,6 +1008,8 @@ export function SkillsSpotlight({
 
       setMultiSelectEnabled(false);
       setSelectedNodeIds(new Set());
+      setSelectedNodeId(null);
+      setHoveredNodeId(null);
       await refreshSnapshot("Selected skills removed.");
       setError(null);
       focusTreeSurface(treeSurfaceRef.current);
@@ -1042,19 +1077,23 @@ export function SkillsSpotlight({
 
     switch (action) {
       case "select-previous":
+        setHoveredNodeId(null);
         setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
-        setSelectedNodeId(moveSkillTreeSelection(visibleRows, selectedNodeId, -1));
+        setSelectedNodeId(moveSkillTreeSelection(visibleRows, activeRowId, -1));
         break;
       case "select-next":
+        setHoveredNodeId(null);
         setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
-        setSelectedNodeId(moveSkillTreeSelection(visibleRows, selectedNodeId, 1));
+        setSelectedNodeId(moveSkillTreeSelection(visibleRows, activeRowId, 1));
         break;
       case "expand":
+        setHoveredNodeId(null);
         if (selectedRow?.hasChildren) {
           setExpandedIds((current) => new Set(current).add(selectedRow.id));
         }
         break;
       case "collapse":
+        setHoveredNodeId(null);
         if (selectedRow?.hasChildren && expandedIds.has(selectedRow.id)) {
           setExpandedIds((current) => {
             const next = new Set(current);
@@ -1090,6 +1129,7 @@ export function SkillsSpotlight({
         }
         break;
       case "cancel":
+        setHoveredNodeId(null);
         setEditorState(null);
         setBulkApplyToChildren(false);
         focusTreeSurface(treeSurfaceRef.current);
@@ -1177,10 +1217,20 @@ export function SkillsSpotlight({
                 ? "skill-tree skill-tree--interactive skill-tree--dragging"
                 : "skill-tree skill-tree--interactive"
             }
+            onPointerLeave={() => {
+              setHoveredNodeId(null);
+
+              if (!multiSelectEnabled) {
+                setSelectedNodeId(null);
+              }
+            }}
           >
             {visibleRows.map((row) => {
+              const isHovered = row.id === hoveredNodeId;
               const isSelected =
-                multiSelectEnabled ? selectedNodeIds.has(row.id) : row.id === selectedNodeId;
+                multiSelectEnabled
+                  ? selectedNodeIds.has(row.id)
+                  : row.id === activeRowId;
               const isExpanded = expandedIds.has(row.id);
               const isDropTarget =
                 visibleDropIndicator?.position === "before" &&
@@ -1200,6 +1250,7 @@ export function SkillsSpotlight({
                     className={[
                       "skill-tree__row",
                       "skill-tree__row--interactive",
+                      isHovered ? "skill-tree__row--hovered" : "",
                       isSelected ? "skill-tree__row--selected" : "",
                       isDropTarget ? "skill-tree__row--drop-target" : "",
                       visibleDropIndicator?.targetNodeId === row.id &&
@@ -1213,6 +1264,8 @@ export function SkillsSpotlight({
                     draggable={searchQuery.trim().length === 0}
                     onClick={() => handleRowSelection(row.id)}
                     onPointerEnter={() => {
+                      setHoveredNodeId(row.id);
+
                       const pointerSelectedNodeId = resolveSkillTreeSelectionFromPointer({
                         nodeId: row.id,
                         multiSelectEnabled,
