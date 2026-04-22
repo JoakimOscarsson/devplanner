@@ -362,6 +362,85 @@ describe("graph-service skill routes", () => {
     expect(typescriptEntry?.referenceCount).toBe(2);
   });
 
+  it("creates a reference node in the tree when an exact duplicate keeps the existing canonical skill", async () => {
+    const { baseUrl } = await startServer();
+
+    const response = await fetch(`${baseUrl}/v1/skills/tree/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "TypeScript",
+        parentNodeId: "nod_skill_frontend",
+        duplicateResolution: {
+          canonicalSkillId: "skl_typescript",
+          strategy: "create-reference-to-existing"
+        }
+      })
+    });
+    const payload = await readJson<{
+      canonicalSkill: Skill;
+      referenceNode: GraphNode;
+    }>(response);
+
+    expect(response.status).toBe(201);
+    expect(payload.canonicalSkill.id).toBe("skl_typescript");
+    expect(payload.referenceNode.role).toBe("reference");
+    expect(payload.referenceNode.parentNodeId).toBe("nod_skill_frontend");
+    expect(payload.referenceNode.metadata).toMatchObject({
+      skillId: "skl_typescript"
+    });
+  });
+
+  it("can make the new duplicate entry canonical and convert the previous node into a reference", async () => {
+    const { baseUrl } = await startServer();
+
+    const response = await fetch(`${baseUrl}/v1/skills/tree/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "TypeScript",
+        duplicateResolution: {
+          canonicalSkillId: "skl_typescript",
+          strategy: "replace-existing-canonical-with-reference"
+        }
+      })
+    });
+    const payload = await readJson<{
+      skill: Skill;
+      skillNode: GraphNode;
+      referenceNode: GraphNode;
+    }>(response);
+
+    expect(response.status).toBe(201);
+    expect(payload.skill.id).toBe("skl_typescript");
+    expect(payload.skill.sourceNodeId).toBe(payload.skillNode.id);
+    expect(payload.skillNode.role).toBe("skill");
+    expect(payload.referenceNode.role).toBe("reference");
+    expect(payload.referenceNode.metadata).toMatchObject({
+      skillId: "skl_typescript",
+      referenceNodeId: payload.skillNode.id
+    });
+
+    const inventoryResponse = await fetch(`${baseUrl}/v1/skills`);
+    const inventoryPayload = await readJson<{
+      inventory: Array<{
+        skillId: string;
+        sourceNodeId?: string;
+        referenceCount: number;
+      }>;
+    }>(inventoryResponse);
+    const typescriptEntry = inventoryPayload.inventory.find(
+      (entry) => entry.skillId === "skl_typescript"
+    );
+
+    expect(typescriptEntry?.sourceNodeId).toBe(payload.skillNode.id);
+    expect(typescriptEntry?.referenceCount).toBeGreaterThanOrEqual(2);
+  });
+
   it("creates an explicit skill reference in the target canvas", async () => {
     const { baseUrl } = await startServer();
 

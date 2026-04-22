@@ -238,6 +238,14 @@ function parseCreateSkillTreeNodeBody(body: Record<string, unknown>) {
   const description = parseOptionalTrimmedString(body.description, "description", issues);
   const tag = parseOptionalTrimmedString(body.tag, "tag", issues);
   const color = parseOptionalTrimmedString(body.color, "color", issues);
+  let duplicateResolution:
+    | {
+        canonicalSkillId: Skill["id"];
+        strategy:
+          | "create-reference-to-existing"
+          | "replace-existing-canonical-with-reference";
+      }
+    | undefined;
 
   if (typeof body.label !== "string" || body.label.trim().length === 0) {
     issues.push({
@@ -259,6 +267,46 @@ function parseCreateSkillTreeNodeBody(body: Record<string, unknown>) {
     });
   }
 
+  if (body.duplicateResolution !== undefined) {
+    if (!body.duplicateResolution || typeof body.duplicateResolution !== "object") {
+      issues.push({
+        path: "duplicateResolution",
+        rule: "type",
+        message: "duplicateResolution must be an object when provided."
+      });
+    } else {
+      const duplicateBody = body.duplicateResolution as Record<string, unknown>;
+
+      if (
+        typeof duplicateBody.canonicalSkillId !== "string" ||
+        duplicateBody.canonicalSkillId.trim().length === 0
+      ) {
+        issues.push({
+          path: "duplicateResolution.canonicalSkillId",
+          rule: "min",
+          message: "duplicateResolution.canonicalSkillId must be a non-empty string."
+        });
+      }
+
+      if (
+        duplicateBody.strategy !== "create-reference-to-existing" &&
+        duplicateBody.strategy !== "replace-existing-canonical-with-reference"
+      ) {
+        issues.push({
+          path: "duplicateResolution.strategy",
+          rule: "enum",
+          message:
+            "duplicateResolution.strategy must be create-reference-to-existing or replace-existing-canonical-with-reference."
+        });
+      } else if (typeof duplicateBody.canonicalSkillId === "string") {
+        duplicateResolution = {
+          canonicalSkillId: duplicateBody.canonicalSkillId as Skill["id"],
+          strategy: duplicateBody.strategy
+        };
+      }
+    }
+  }
+
   if (issues.length > 0) {
     throw validationError(issues);
   }
@@ -270,7 +318,8 @@ function parseCreateSkillTreeNodeBody(body: Record<string, unknown>) {
     ...(color ? { color } : {}),
     ...(typeof body.parentNodeId === "string"
       ? { parentNodeId: body.parentNodeId as GraphNode["id"] }
-      : {})
+      : {}),
+    ...(duplicateResolution ? { duplicateResolution } : {})
   };
 }
 

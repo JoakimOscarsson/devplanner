@@ -848,7 +848,13 @@ function getSkillTreeChildren(parentNodeId?: GraphNode["id"]) {
       }
 
       if (left.role !== right.role) {
-        return left.role.localeCompare(right.role);
+        const roleOrder = {
+          skill: 0,
+          reference: 1
+        } as const;
+
+        return roleOrder[left.role as "skill" | "reference"] -
+          roleOrder[right.role as "skill" | "reference"];
       }
 
       return left.label.localeCompare(right.label);
@@ -1104,7 +1110,11 @@ function createSkillReferenceNode(input: {
   canvasId?: Canvas["id"];
   sourceNodeId?: GraphNode["id"];
   referenceNodeId?: GraphNode["id"];
+  parentNodeId?: GraphNode["id"];
   position?: GraphNodePosition;
+  description?: string;
+  tag?: string;
+  color?: string;
 }) {
   const canvasId = input.canvasId ?? getSkillGraphCanvas().id;
   assertCanvas(canvasId);
@@ -1115,9 +1125,10 @@ function createSkillReferenceNode(input: {
 
   const timestamp = now();
   const parentNodeId =
-    canvasId === getSkillGraphCanvas().id
+    input.parentNodeId ??
+    (canvasId === getSkillGraphCanvas().id
       ? findSkillGraphNode(input.canonicalSkill.id)?.id
-      : undefined;
+      : undefined);
   const referenceNode: NodeRecord = {
     id: buildId(ID_PREFIXES.node) as GraphNode["id"],
     canvasId,
@@ -1127,11 +1138,16 @@ function createSkillReferenceNode(input: {
     normalizedLabel: normalizeLabel(input.label),
     position: input.position ?? nextSkillGraphPosition("reference"),
     source: "user",
+    ...(typeof input.description === "string" && input.description.trim().length > 0
+      ? { description: input.description.trim() }
+      : {}),
     ...(parentNodeId ? { parentNodeId } : {}),
     metadata: buildSkillTreeMetadata({
       skillId: input.canonicalSkill.id,
       sourceNodeId: input.sourceNodeId,
       referenceNodeId: input.referenceNodeId,
+      tag: input.tag,
+      color: input.color,
       sortOrder: parentNodeId ? nextSkillTreeSortOrder(parentNodeId) : undefined
     }),
     ...auditFields(timestamp)
@@ -1145,6 +1161,137 @@ function createSkillReferenceNode(input: {
   }
 
   return referenceNode;
+}
+
+function reparentSkillTreeChildren(
+  sourceParentNodeId: GraphNode["id"],
+  targetParentNodeId: GraphNode["id"]
+) {
+  const timestamp = now();
+  const childIds = getSkillTreeChildren(sourceParentNodeId).map((node) => node.id);
+
+  if (childIds.length === 0) {
+    return;
+  }
+
+  graphStore.nodes = graphStore.nodes.map((node) =>
+    childIds.includes(node.id)
+      ? {
+          ...node,
+          parentNodeId: targetParentNodeId,
+          updatedAt: timestamp
+        }
+      : node
+  );
+
+  childIds.forEach((childId) => {
+    replaceParentEdge(getSkillGraphCanvas().id, childId, targetParentNodeId);
+  });
+
+  renumberSkillTreeSiblings(sourceParentNodeId);
+  renumberSkillTreeSiblings(targetParentNodeId);
+}
+
+function replaceCanonicalSkillWithNewTreeNode(input: {
+  canonicalSkill: SkillRecord;
+  label: string;
+  description?: string;
+  parentNodeId?: GraphNode["id"];
+  tag?: string;
+  color?: string;
+}) {
+  const existingCanonicalNode = findSkillGraphNode(input.canonicalSkill.id);
+
+  if (!existingCanonicalNode) {
+    throw storeError(
+      "NOT_FOUND",
+      `Skill graph node for ${input.canonicalSkill.id} was not found.`,
+      404
+    );
+  }
+
+  if (
+    input.parentNodeId &&
+    (input.parentNodeId === existingCanonicalNode.id ||
+      getSkillTreeDescendantIds(existingCanonicalNode.id).has(input.parentNodeId))
+  ) {
+    throw storeError(
+      "VALIDATION_FAILED",
+      "The replacement canonical skill cannot be created inside the current skill subtree.",
+      422,
+      {
+        issues: [
+          {
+            path: "parentNodeId",
+            rule: "cycle",
+            message:
+              "The replacement canonical skill cannot be created inside the current skill subtree."
+          }
+        ]
+      }
+    );
+  }
+
+  const nodeId = buildId(ID_PREFIXES.node) as GraphNode["id"];
+  const existingSortOrder = readNodeNumberMetadata(existingCanonicalNode, "sortOrder") ?? 0;
+  const nextDescription = input.description?.trim() || existingCanonicalNode.description;
+  const nextTag = input.tag ?? readNodeTagString(existingCanonicalNode);
+  const nextColor = input.color ?? readNodeStringMetadata(existingCanonicalNode, "color");
+  const updatedSkill: SkillRecord = {
+    ...input.canonicalSkill,
+    canonicalLabel: input.label.trim(),
+    normalizedLabel: normalizeLabel(input.label),
+    ...(nextDescription ? { description: nextDescription } : { description: undefined }),
+    sourceNodeId: nodeId,
+    metadata: buildSkillTreeMetadata({
+      existing: input.canonicalSkill.metadata,
+      tag: nextTag,
+      color: nextColor
+    }),
+    updatedAt: now()
+  };
+
+  graphStore.skills = graphStore.skills.map((entry) =>
+    entry.id === updatedSkill.id ? updatedSkill : entry
+  );
+
+  const skillNode = createSkillGraphNodeFromTreeInput({
+    skill: updatedSkill,
+    nodeId,
+    label: updatedSkill.canonicalLabel,
+    description: nextDescription,
+    parentNodeId: input.parentNodeId,
+    tag: nextTag ?? undefined,
+    color: nextColor ?? undefined
+  });
+
+  reparentSkillTreeChildren(existingCanonicalNode.id, skillNode.id);
+
+  const replacementReferenceNode: NodeRecord = {
+    ...existingCanonicalNode,
+    role: "reference",
+    normalizedLabel: normalizeLabel(existingCanonicalNode.label),
+    metadata: buildSkillTreeMetadata({
+      existing: existingCanonicalNode.metadata,
+      skillId: updatedSkill.id,
+      referenceNodeId: skillNode.id,
+      tag: readNodeTagString(existingCanonicalNode),
+      color: readNodeStringMetadata(existingCanonicalNode, "color"),
+      sortOrder: existingSortOrder
+    }),
+    updatedAt: now()
+  };
+
+  graphStore.nodes = graphStore.nodes.map((node) =>
+    node.id === existingCanonicalNode.id ? replacementReferenceNode : node
+  );
+  renumberSkillTreeSiblings(existingCanonicalNode.parentNodeId);
+
+  return {
+    skill: updatedSkill,
+    skillNode,
+    referenceNode: replacementReferenceNode
+  };
 }
 
 function reorderBrainstormCanvases(
@@ -1642,17 +1789,79 @@ export function createSkillTreeNode(input: {
   parentNodeId?: GraphNode["id"];
   tag?: string;
   color?: string;
+  duplicateResolution?: {
+    canonicalSkillId: Skill["id"];
+    strategy:
+      | "create-reference-to-existing"
+      | "replace-existing-canonical-with-reference";
+  };
 }) {
   const normalizedLabel = normalizeLabel(input.label);
   const duplicateCandidates = findDuplicateSkillCandidates(input.label);
 
   if (duplicateCandidates.some((candidate) => candidate.normalizedLabel === normalizedLabel)) {
+    const exactCandidate = duplicateCandidates.find(
+      (candidate) => candidate.normalizedLabel === normalizedLabel
+    );
+
+    if (
+      exactCandidate &&
+      input.duplicateResolution?.canonicalSkillId === exactCandidate.skillId &&
+      input.duplicateResolution.strategy === "create-reference-to-existing"
+    ) {
+      if (input.parentNodeId) {
+        assertSkillTreeParent(
+          `nod_pending_${crypto.randomUUID().replaceAll("-", "")}` as GraphNode["id"],
+          input.parentNodeId
+        );
+      }
+
+      const canonicalSkill = assertSkill(exactCandidate.skillId as Skill["id"]);
+      const referenceNode = createSkillReferenceNode({
+        canonicalSkill,
+        label: input.label,
+        parentNodeId: input.parentNodeId,
+        description: input.description,
+        tag: input.tag,
+        color: input.color,
+        referenceNodeId: findSkillGraphNode(canonicalSkill.id)?.id
+      });
+
+      return {
+        canonicalSkill,
+        referenceNode
+      };
+    }
+
+    if (
+      exactCandidate &&
+      input.duplicateResolution?.canonicalSkillId === exactCandidate.skillId &&
+      input.duplicateResolution.strategy === "replace-existing-canonical-with-reference"
+    ) {
+      if (input.parentNodeId) {
+        assertSkillTreeParent(
+          `nod_pending_${crypto.randomUUID().replaceAll("-", "")}` as GraphNode["id"],
+          input.parentNodeId
+        );
+      }
+
+      return replaceCanonicalSkillWithNewTreeNode({
+        canonicalSkill: assertSkill(exactCandidate.skillId as Skill["id"]),
+        label: input.label,
+        description: input.description,
+        parentNodeId: input.parentNodeId,
+        tag: input.tag,
+        color: input.color
+      });
+    }
+
     throw storeError(
       "SKILL_RESOLUTION_REQUIRED",
       "Duplicate skill resolution is required before creating this skill.",
       409,
       {
         normalizedLabel,
+        exactMatch: Boolean(exactCandidate),
         candidates: duplicateCandidates.map((candidate) => ({
           skillId: candidate.skillId,
           canonicalLabel: candidate.canonicalLabel,

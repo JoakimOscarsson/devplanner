@@ -73,10 +73,7 @@ export const EMPTY_SKILLS_SNAPSHOT: SkillsSnapshot = {
 };
 
 export const TEMPORARILY_HIDDEN_SKILLTREE_FEATURES = [
-  "Create a reference to an existing canonical skill from this page",
-  "Show reference nodes inline in the tree",
   "Resolve duplicate canonical skills from the tree",
-  "Review brainstorm promotion candidates from the skill tree page",
   "Skill rating and gap filters",
   "Bulk move or re-parent actions for multiple selected skills"
 ] as const;
@@ -188,6 +185,10 @@ function isSkillNode(node: GraphNode) {
   return node.role === "skill" && node.category === "skill";
 }
 
+function isReferenceNode(node: GraphNode) {
+  return node.role === "reference" && node.category === "skill";
+}
+
 function buildEdgeChildrenMap(edges: readonly GraphEdge[]) {
   const map = new Map<GraphNode["id"], GraphNode["id"][]>();
 
@@ -234,7 +235,7 @@ function buildSkillTreeNode(input: {
   const edgeChildren = (input.childIdsByParentId.get(input.node.id) ?? [])
     .map((childId) => input.nodeById.get(childId))
     .filter((child): child is GraphNode => Boolean(child))
-    .filter(isSkillNode)
+    .filter(isSkillTreeNode)
     .filter((child) => !nextLineage.has(child.id))
     .sort(compareGraphNodes);
 
@@ -242,14 +243,19 @@ function buildSkillTreeNode(input: {
     input.depth >= SKILL_TREE_DEPTH_LIMIT
       ? []
       : edgeChildren.map((child) =>
-          buildSkillTreeNode({
-            node: child,
-            allNodes: input.allNodes,
-            nodeById: input.nodeById,
-            childIdsByParentId: input.childIdsByParentId,
-            depth: input.depth + 1,
-            lineage: nextLineage
-          })
+          isReferenceNode(child)
+            ? {
+                ...createTreeNodeBase(child, "reference"),
+                children: []
+              }
+            : buildSkillTreeNode({
+                node: child,
+                allNodes: input.allNodes,
+                nodeById: input.nodeById,
+                childIdsByParentId: input.childIdsByParentId,
+                depth: input.depth + 1,
+                lineage: nextLineage
+              })
         );
 
   return {
@@ -528,19 +534,23 @@ export function buildSkillsPanelModel(snapshot: SkillsSnapshot): SkillsPanelMode
   const nodesById = new Map(skillGraphNodes.map((node) => [node.id, node] as const));
   const childIdsByParentId = buildEdgeChildrenMap(skillGraphEdges);
   const skillGraphRootNodes = skillGraphNodes
-    .filter(isSkillNode)
     .filter((node) => node.parentNodeId === undefined)
     .sort(compareGraphNodes);
 
   const treeRoots = skillGraphRootNodes.map((node) =>
-    buildSkillTreeNode({
-      node,
-      allNodes: skillGraphNodes,
-      nodeById: nodesById,
-      childIdsByParentId,
-      depth: 1,
-      lineage: new Set()
-    })
+    isReferenceNode(node)
+      ? {
+          ...createTreeNodeBase(node, "reference"),
+          children: []
+        }
+      : buildSkillTreeNode({
+          node,
+          allNodes: skillGraphNodes,
+          nodeById: nodesById,
+          childIdsByParentId,
+          depth: 1,
+          lineage: new Set()
+        })
   );
   const resolvedTreeRoots =
     treeRoots.length > 0

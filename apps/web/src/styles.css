@@ -669,6 +669,12 @@ textarea {
   font-size: 0.76rem;
 }
 
+.skill-tree-filter-popover__label {
+  color: #1f2937;
+  font-size: 0.76rem;
+  line-height: 1.3;
+}
+
 .skill-tree-filter-popover__empty {
   margin: 0;
   color: #98a2b3;
@@ -697,39 +703,6 @@ textarea {
   color: #7c8897;
   font-size: 0.76rem;
   line-height: 1.5;
-}
-
-.skill-tree-governance {
-  display: grid;
-  gap: 10px;
-  padding: 0.7rem 0.75rem;
-  border: 1px solid rgba(226, 232, 240, 0.96);
-  border-radius: 8px;
-  background: rgba(248, 250, 252, 0.7);
-}
-
-.skill-tree-governance__header,
-.skill-tree-governance__item,
-.skill-duplicate-callout__header,
-.skill-duplicate-callout__item {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.skill-tree-governance__list,
-.skill-duplicate-callout__list {
-  display: grid;
-  gap: 8px;
-}
-
-.skill-tree-governance__item p,
-.skill-duplicate-callout__item p,
-.skill-duplicate-callout p {
-  margin: 2px 0 0;
-  color: #667085;
-  font-size: 0.74rem;
 }
 
 .skill-tree {
@@ -1039,6 +1012,21 @@ textarea {
   font-weight: 400;
 }
 
+.skill-modal__body {
+  display: grid;
+  gap: 14px;
+}
+
+.skill-modal__body--with-suggestions {
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: start;
+}
+
+.skill-modal__fields {
+  display: grid;
+  gap: 14px;
+}
+
 .skill-modal__field {
   display: grid;
   gap: 6px;
@@ -1084,6 +1072,72 @@ textarea {
   accent-color: #5b63f6;
 }
 
+.skill-modal__suggestions {
+  display: grid;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.skill-modal__suggestions-header {
+  display: grid;
+  gap: 4px;
+}
+
+.skill-modal__suggestions-header p {
+  margin: 0;
+  color: #667085;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.skill-modal__suggestion-list {
+  display: grid;
+  gap: 8px;
+}
+
+.skill-modal__suggestion-card {
+  display: grid;
+  gap: 5px;
+  padding: 0.68rem 0.72rem;
+  border-radius: 6px;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  background: rgba(248, 250, 252, 0.92);
+  text-align: left;
+  box-shadow: none;
+}
+
+.skill-modal__suggestion-card strong {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.skill-modal__suggestion-card p {
+  margin: 0;
+  color: #667085;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.skill-modal__suggestion-tone {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 0.1rem 0.38rem;
+  font-size: 0.65rem;
+  font-weight: 500;
+}
+
+.skill-modal__suggestion-tone--brainstorm {
+  background: rgba(219, 234, 254, 0.95);
+  color: #1d4ed8;
+}
+
+.skill-modal__suggestion-tone--recommendation {
+  background: rgba(243, 232, 255, 0.95);
+  color: #7c3aed;
+}
+
 .skill-modal__duplicate {
   display: grid;
   gap: 10px;
@@ -1119,6 +1173,13 @@ textarea {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+}
+
+.skill-modal__duplicate-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .skill-modal__duplicate-item p {
@@ -1215,20 +1276,10 @@ textarea {
   }
 }
 
-.skill-duplicate-callout {
-  display: grid;
-  gap: 10px;
-  margin-top: 10px;
-  padding: 0.8rem 0.9rem;
-  border-radius: 8px;
-  border: 1px solid rgba(251, 191, 36, 0.45);
-  background: rgba(255, 251, 235, 0.92);
-}
-
-.skill-duplicate-callout__actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+@media (max-width: 860px) {
+  .skill-modal__body--with-suggestions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .workspace-summary {

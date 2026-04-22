@@ -274,11 +274,16 @@ describe("skills module", () => {
     expect(model.treeRoots[0]?.children[0]?.label).toBe("TypeScript");
     expect(model.treeRoots[0]?.children[0]?.tag).toBe("technical");
     expect(model.treeRoots[0]?.children[0]?.tags).toEqual(["technical", "frontend"]);
+    expect(model.treeRoots[0]?.children[0]?.children[0]).toMatchObject({
+      id: "nod_reference_typescript_project",
+      kind: "reference",
+      label: "TypeScript in projects"
+    });
     expect(model.hiddenFeatureNotes).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("reference"),
         expect.stringContaining("duplicate"),
-        expect.stringContaining("promotion")
+        expect.stringContaining("rating"),
+        expect.stringContaining("re-parent")
       ])
     );
     expect(model.hiddenFeatureNotes.join(" ")).not.toContain("batch tagging");
@@ -314,7 +319,7 @@ describe("skills module", () => {
     });
 
     expect(indicator).toEqual({
-      targetNodeId: "nod_skill_typescript",
+      targetNodeId: "nod_reference_typescript_project",
       position: "after"
     });
   });
@@ -350,7 +355,7 @@ describe("skills module", () => {
     );
     expect(moveSkillTreeSelection(rows, "nod_skill_typescript", -1)).toBe("nod_skill_frontend");
     expect(moveSkillTreeSelection(rows, null, 1)).toBe("nod_skill_frontend");
-    expect(moveSkillTreeSelection(rows, null, -1)).toBe("nod_skill_typescript");
+    expect(moveSkillTreeSelection(rows, null, -1)).toBe("nod_reference_typescript_project");
   });
 
   it("formats and filters multiple tags as a single searchable field", () => {

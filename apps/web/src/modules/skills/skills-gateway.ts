@@ -103,6 +103,12 @@ export interface CreateSkillTreeNodeInput {
   readonly tag?: string;
   readonly color?: string;
   readonly parentNodeId?: GraphNode["id"];
+  readonly duplicateResolution?: {
+    readonly canonicalSkillId: Skill["id"];
+    readonly strategy:
+      | "create-reference-to-existing"
+      | "replace-existing-canonical-with-reference";
+  };
 }
 
 export interface UpdateSkillTreeNodeInput {
