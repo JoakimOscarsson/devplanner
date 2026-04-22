@@ -1,4 +1,16 @@
-import { toGraphCanvasViewModel } from "@pdp-helper/ui-graph";
+import {
+  deriveChildNodePlacement,
+  deriveReparentedNodePlacement,
+  deriveRootNodePlacement,
+  deriveSiblingNodePlacement,
+  toGraphCanvasViewModel,
+  type GraphCanvasViewModel,
+  type GraphEdgeViewModel,
+  type GraphNodeViewModel
+} from "@pdp-helper/ui-graph";
+import type {
+  CreateBrainstormNodeInput
+} from "./brainstorm-gateway";
 import type {
   BrainstormCanvas,
   BrainstormEdge,
@@ -48,6 +60,17 @@ export interface BrainstormRelationshipSummary {
   readonly relationship: string;
 }
 
+export interface BrainstormCanvasNodeCard extends GraphNodeViewModel {
+  readonly parentLabel?: string;
+  readonly incomingCount: number;
+  readonly outgoingCount: number;
+}
+
+export interface BrainstormCanvasEdgeCard extends GraphEdgeViewModel {
+  readonly sourceLabel: string;
+  readonly targetLabel: string;
+}
+
 export interface BrainstormSelectedCanvasModel {
   readonly id: BrainstormCanvas["id"];
   readonly name: string;
@@ -57,6 +80,9 @@ export interface BrainstormSelectedCanvasModel {
   readonly edgeCount: number;
   readonly nodes: readonly BrainstormNodeSummary[];
   readonly relationships: readonly BrainstormRelationshipSummary[];
+  readonly graphView: GraphCanvasViewModel;
+  readonly graphNodes: readonly BrainstormCanvasNodeCard[];
+  readonly graphEdges: readonly BrainstormCanvasEdgeCard[];
 }
 
 export interface BrainstormPanelModel {
@@ -68,6 +94,20 @@ export interface BrainstormPanelModelOptions {
   readonly selectedCanvasId?: BrainstormCanvas["id"];
   readonly canvasHrefBuilder?: (canvas: BrainstormCanvas) => string | undefined;
 }
+
+export type BrainstormComposerIntent = "root" | "child" | "sibling";
+
+export type BrainstormHotkeyAction =
+  | "compose-root"
+  | "compose-child"
+  | "compose-sibling"
+  | "move-left"
+  | "move-right"
+  | "move-up"
+  | "move-down"
+  | "delete-node"
+  | "toggle-reparent"
+  | "cancel";
 
 export const EMPTY_BRAINSTORM_SNAPSHOT: BrainstormSnapshot = {
   canvases: [],
@@ -91,6 +131,114 @@ export function getBrainstormCanvases(
   return [...canvases]
     .filter((canvas: BrainstormCanvas) => canvas.mode === "brainstorm")
     .sort(compareCanvases);
+}
+
+export function interpretBrainstormHotkey(input: {
+  readonly key: string;
+  readonly targetTagName?: string | null;
+  readonly metaKey?: boolean;
+  readonly ctrlKey?: boolean;
+  readonly altKey?: boolean;
+}): BrainstormHotkeyAction | null {
+  const tagName = input.targetTagName?.toLowerCase();
+
+  if (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    input.metaKey ||
+    input.ctrlKey ||
+    input.altKey
+  ) {
+    return null;
+  }
+
+  switch (input.key) {
+    case "r":
+    case "R":
+      return "compose-root";
+    case "c":
+    case "C":
+      return "compose-child";
+    case "s":
+    case "S":
+      return "compose-sibling";
+    case "m":
+    case "M":
+      return "toggle-reparent";
+    case "Escape":
+      return "cancel";
+    case "Backspace":
+    case "Delete":
+      return "delete-node";
+    case "ArrowLeft":
+      return "move-left";
+    case "ArrowRight":
+      return "move-right";
+    case "ArrowUp":
+      return "move-up";
+    case "ArrowDown":
+      return "move-down";
+    default:
+      return null;
+  }
+}
+
+export function deriveBrainstormCreateNodeInput(
+  graph: BrainstormCanvasGraph,
+  input: {
+    readonly intent: BrainstormComposerIntent;
+    readonly anchorNodeId?: BrainstormNode["id"];
+    readonly label: string;
+    readonly category: BrainstormNode["category"];
+  }
+): CreateBrainstormNodeInput {
+  const graphView = toGraphCanvasViewModel({
+    mode: graph.canvas.mode,
+    nodes: graph.nodes,
+    edges: graph.edges
+  });
+
+  const placement =
+    input.intent === "child" && input.anchorNodeId
+      ? deriveChildNodePlacement(graphView.nodes, input.anchorNodeId)
+      : input.intent === "sibling" && input.anchorNodeId
+        ? deriveSiblingNodePlacement(graphView.nodes, input.anchorNodeId)
+        : deriveRootNodePlacement(graphView.nodes);
+
+  return {
+    canvasId: graph.canvas.id,
+    label: input.label,
+    category: input.category,
+    position: {
+      x: placement.x,
+      y: placement.y
+    },
+    ...(placement.parentNodeId ? { parentNodeId: placement.parentNodeId as BrainstormNode["id"] } : {})
+  };
+}
+
+export function deriveBrainstormReparentUpdate(
+  graph: BrainstormCanvasGraph,
+  input: {
+    readonly nodeId: BrainstormNode["id"];
+    readonly nextParentNodeId: BrainstormNode["id"];
+  }
+) {
+  const graphView = toGraphCanvasViewModel({
+    mode: graph.canvas.mode,
+    nodes: graph.nodes,
+    edges: graph.edges
+  });
+  const placement = deriveReparentedNodePlacement(graphView.nodes, input);
+
+  return {
+    parentNodeId: placement.parentNodeId as BrainstormNode["id"],
+    position: {
+      x: placement.x,
+      y: placement.y
+    }
+  };
 }
 
 export function buildBrainstormPanelModel(
@@ -142,7 +290,13 @@ export function buildBrainstormPanelModel(
       selectedCanvas: {
         ...selectedCanvasSummary,
         nodes: [],
-        relationships: []
+        relationships: [],
+        graphView: {
+          nodes: [],
+          edges: []
+        },
+        graphNodes: [],
+        graphEdges: []
       }
     };
   }
@@ -182,8 +336,17 @@ export function buildBrainstormPanelModel(
       return left.relationship.localeCompare(right.relationship);
     });
 
-  const nodes = graphView.nodes
-    .reduce<BrainstormNodeSummary[]>((summaries, viewNode) => {
+  const graphEdges = relationships.map((relationship) => ({
+    id: relationship.id,
+    sourceNodeId: relationship.sourceNodeId,
+    targetNodeId: relationship.targetNodeId,
+    relationship: relationship.relationship,
+    sourceLabel: relationship.sourceLabel,
+    targetLabel: relationship.targetLabel
+  })) satisfies BrainstormCanvasEdgeCard[];
+
+  const graphNodes = graphView.nodes
+    .reduce<BrainstormCanvasNodeCard[]>((summaries, viewNode) => {
       const nodeId = viewNode.id as BrainstormNode["id"];
       const node = nodesById.get(nodeId);
 
@@ -201,31 +364,41 @@ export function buildBrainstormPanelModel(
       ).length;
 
       summaries.push({
-        id: nodeId,
-        label: viewNode.label,
-        category: viewNode.category,
-        visualKind: viewNode.visualKind,
-        colorToken: viewNode.colorToken,
+        ...viewNode,
         parentLabel: node.parentNodeId
           ? nodesById.get(node.parentNodeId)?.label
           : undefined,
         incomingCount,
-        outgoingCount,
-        positionLabel: `${viewNode.position.x}, ${viewNode.position.y}`
+        outgoingCount
       });
 
       return summaries;
     }, [])
-    .sort((left: BrainstormNodeSummary, right: BrainstormNodeSummary) =>
+    .sort((left: BrainstormCanvasNodeCard, right: BrainstormCanvasNodeCard) =>
       left.label.localeCompare(right.label)
     );
+
+  const nodes = graphNodes.map((node) => ({
+    id: node.id as BrainstormNode["id"],
+    label: node.label,
+    category: node.category,
+    visualKind: node.visualKind,
+    colorToken: node.colorToken,
+    parentLabel: node.parentLabel,
+    incomingCount: node.incomingCount,
+    outgoingCount: node.outgoingCount,
+    positionLabel: `${node.position.x}, ${node.position.y}`
+  })) satisfies BrainstormNodeSummary[];
 
   return {
     canvasSummaries,
     selectedCanvas: {
       ...selectedCanvasSummary,
       nodes,
-      relationships
+      relationships,
+      graphView,
+      graphNodes,
+      graphEdges
     }
   };
 }

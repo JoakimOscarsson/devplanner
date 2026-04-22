@@ -1,11 +1,16 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { Canvas, GraphEdge, GraphNode } from "@pdp-helper/contracts-graph";
+import { BrainstormSpotlight } from "../../apps/web/src/modules/brainstorm/BrainstormSpotlight";
 import {
   createBrainstormGatewayPort,
   loadBrainstormSnapshot
 } from "../../apps/web/src/modules/brainstorm/brainstorm-gateway";
 import {
   buildBrainstormPanelModel,
+  deriveBrainstormCreateNodeInput,
+  interpretBrainstormHotkey,
   type BrainstormSnapshot
 } from "../../apps/web/src/modules/brainstorm/brainstorm-model";
 
@@ -182,6 +187,34 @@ describe("brainstorm module", () => {
             }
           }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            node: createNode(
+              "nod_c",
+              "can_a",
+              "System design",
+              "skill",
+              { x: 96, y: 144 },
+              "nod_root"
+            )
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ deletedNodeId: "nod_c" }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          }
+        })
       );
 
     const port = createBrainstormGatewayPort("http://localhost:4000", fetcher);
@@ -193,6 +226,19 @@ describe("brainstorm module", () => {
       canvasId: "can_a" as Canvas["id"],
       label: "System design",
       category: "skill"
+    });
+    await port.updateNode({
+      canvasId: "can_a" as Canvas["id"],
+      nodeId: "nod_c" as GraphNode["id"],
+      parentNodeId: "nod_root" as GraphNode["id"],
+      position: {
+        x: 96,
+        y: 144
+      }
+    });
+    await port.deleteNode({
+      canvasId: "can_a" as Canvas["id"],
+      nodeId: "nod_c" as GraphNode["id"]
     });
 
     expect(fetcher).toHaveBeenNthCalledWith(
@@ -234,6 +280,27 @@ describe("brainstorm module", () => {
           source: "user",
           position: { x: 0, y: 0 }
         })
+      }
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      5,
+      "http://localhost:4000/api/v1/canvases/can_a/nodes/nod_c",
+      {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          parentNodeId: "nod_root",
+          position: { x: 96, y: 144 }
+        })
+      }
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      6,
+      "http://localhost:4000/api/v1/canvases/can_a/nodes/nod_c",
+      {
+        method: "DELETE"
       }
     );
   });
@@ -368,5 +435,78 @@ describe("brainstorm module", () => {
 
     expect(positions).toHaveLength(2);
     expect(new Set(positions).size).toBe(2);
+  });
+
+  it("derives root, child, and sibling creation plans and maps keyboard shortcuts", () => {
+    const graph = createSnapshot().graphsByCanvasId["can_brainstorm_inbox"];
+
+    expect(
+      deriveBrainstormCreateNodeInput(graph!, {
+        intent: "root",
+        label: "Architecture study",
+        category: "skill"
+      })
+    ).toMatchObject({
+      label: "Architecture study",
+      category: "skill",
+      position: { x: 64, y: 272 }
+    });
+
+    expect(
+      deriveBrainstormCreateNodeInput(graph!, {
+        intent: "child",
+        anchorNodeId: "nod_brainstorm_typescript",
+        label: "Review docs",
+        category: "course"
+      })
+    ).toMatchObject({
+      parentNodeId: "nod_brainstorm_typescript",
+      position: { x: 304, y: 244 }
+    });
+
+    expect(
+      deriveBrainstormCreateNodeInput(graph!, {
+        intent: "sibling",
+        anchorNodeId: "nod_brainstorm_project",
+        label: "Ship tracker",
+        category: "project"
+      })
+    ).toMatchObject({
+      parentNodeId: "nod_brainstorm_typescript",
+      position: { x: 304, y: 244 }
+    });
+
+    expect(
+      interpretBrainstormHotkey({
+        key: "c",
+        targetTagName: "div"
+      })
+    ).toBe("compose-child");
+    expect(
+      interpretBrainstormHotkey({
+        key: "ArrowLeft",
+        targetTagName: "div"
+      })
+    ).toBe("move-left");
+    expect(
+      interpretBrainstormHotkey({
+        key: "Backspace",
+        targetTagName: "input"
+      })
+    ).toBeNull();
+  });
+
+  it("renders a mind-map canvas with command hints and node actions", () => {
+    const markup = renderToStaticMarkup(
+      createElement(BrainstormSpotlight, {
+        snapshot: createSnapshot()
+      })
+    );
+
+    expect(markup).toContain("Mind-map canvas");
+    expect(markup).toContain("Create child");
+    expect(markup).toContain("Create sibling");
+    expect(markup).toContain("Reparent mode");
+    expect(markup).toContain("Hotkeys");
   });
 });

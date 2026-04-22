@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { ModuleCapability } from "@pdp-helper/ui-shell";
+import { GraphCanvasSurface } from "../../lib/GraphCanvasSurface";
 import { gatewayUrl } from "../../lib/gateway";
 import {
   createSkillsGatewayPort,
@@ -56,6 +57,10 @@ export function SkillsSpotlight({
   feedback,
   onCheckDuplicate
 }: SkillsSpotlightProps) {
+  const gateway = useMemo(
+    () => createSkillsGatewayPort(gatewayBaseUrl),
+    [gatewayBaseUrl]
+  );
   const [localSnapshot, setLocalSnapshot] = useState<SkillsSnapshot | null>(
     snapshot ?? null
   );
@@ -64,6 +69,9 @@ export function SkillsSpotlight({
   const [error, setError] = useState<string | null>(null);
   const [localFeedback, setLocalFeedback] = useState<string | null>(feedback ?? null);
   const [queryLabel, setQueryLabel] = useState("TypeScript");
+  const [selectedCandidateNodeId, setSelectedCandidateNodeId] = useState<string | null>(null);
+  const [referenceSkillId, setReferenceSkillId] = useState<string>("");
+  const [referenceLabel, setReferenceLabel] = useState("Practice TypeScript in project work");
 
   useEffect(() => {
     if (!snapshot) {
@@ -90,12 +98,9 @@ export function SkillsSpotlight({
       setLoading(true);
 
       try {
-        const nextSnapshot = await loadSkillsSnapshot(
-          createSkillsGatewayPort(gatewayBaseUrl),
-          {
-            initialLabelCheck: "TypeScript"
-          }
-        );
+        const nextSnapshot = await loadSkillsSnapshot(gateway, {
+          initialLabelCheck: "TypeScript"
+        });
 
         if (!active) {
           return;
@@ -121,7 +126,7 @@ export function SkillsSpotlight({
     return () => {
       active = false;
     };
-  }, [gatewayBaseUrl, snapshot]);
+  }, [gateway, snapshot]);
 
   const activeSnapshot = localSnapshot ?? EMPTY_SKILLS_SNAPSHOT;
   const model = buildSkillsPanelModel(activeSnapshot);
@@ -129,11 +134,33 @@ export function SkillsSpotlight({
   const statusStyle =
     STATUS_STYLES[moduleStatus as keyof typeof STATUS_STYLES] ??
     STATUS_STYLES.unknown;
+  const selectedPromotionCandidate =
+    activeSnapshot.promotionCandidates?.find(
+      (candidate) => candidate.nodeId === selectedCandidateNodeId
+    ) ?? activeSnapshot.promotionCandidates?.[0];
+
+  useEffect(() => {
+    if (!activeSnapshot.inventory[0]?.skillId) {
+      return;
+    }
+
+    setReferenceSkillId((current) => current || activeSnapshot.inventory[0]!.skillId);
+  }, [activeSnapshot.inventory]);
+
+  async function refreshSnapshot(initialLabelCheck?: string) {
+    const nextSnapshot = await loadSkillsSnapshot(gateway, {
+      ...(initialLabelCheck ? { initialLabelCheck } : {})
+    });
+    setLocalSnapshot(nextSnapshot);
+  }
 
   async function handleDuplicateCheck(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    await runDuplicateCheck(queryLabel);
+  }
 
-    const label = queryLabel.trim();
+  async function runDuplicateCheck(rawLabel: string) {
+    const label = rawLabel.trim();
 
     if (!label) {
       return;
@@ -147,9 +174,7 @@ export function SkillsSpotlight({
       if (onCheckDuplicate) {
         await onCheckDuplicate({ label });
       } else {
-        const duplicateCheck = await createSkillsGatewayPort(
-          gatewayBaseUrl
-        ).checkDuplicate({
+        const duplicateCheck = await gateway.checkDuplicate({
           label
         });
 
@@ -167,146 +192,270 @@ export function SkillsSpotlight({
     }
   }
 
+  async function runPromotionWorkflow(action: "promote" | "resolve", skillId?: string) {
+    if (!selectedPromotionCandidate) {
+      setLocalFeedback("Choose a brainstorm node first.");
+      return;
+    }
+
+    setPending(true);
+    setError(null);
+
+    try {
+      if (action === "promote") {
+        await gateway.promote({
+          nodeId: selectedPromotionCandidate.nodeId
+        });
+        await refreshSnapshot(selectedPromotionCandidate.label);
+        setLocalFeedback(`Promoted "${selectedPromotionCandidate.label}" into the skill tree.`);
+      } else if (skillId && activeSnapshot.duplicateCheck) {
+        const matchingCandidate = activeSnapshot.duplicateCheck.candidates.find(
+          (candidate) => candidate.skillId === skillId
+        );
+
+        await gateway.resolveDuplicate({
+          nodeId: selectedPromotionCandidate.nodeId,
+          canonicalSkillId: skillId as never,
+          strategy:
+            matchingCandidate?.matchKind === "exact"
+              ? "create-reference-to-existing"
+              : "use-existing-canonical"
+        });
+        await refreshSnapshot(selectedPromotionCandidate.label);
+        setLocalFeedback(`Resolved "${selectedPromotionCandidate.label}" against the existing skill.`);
+      }
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleCreateReference(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const label = referenceLabel.trim();
+
+    if (!label || !referenceSkillId) {
+      return;
+    }
+
+    setPending(true);
+    setError(null);
+
+    try {
+      await gateway.createReference({
+        skillId: referenceSkillId as never,
+        canvasId: "can_skill_graph" as never,
+        label
+      });
+      await refreshSnapshot(activeSnapshot.duplicateCheck?.queryLabel);
+      setLocalFeedback(`Added a new reference node for "${label}".`);
+      setReferenceLabel("");
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <article className="panel">
       <header className="panel-header">
-        <h2>Skill graph module</h2>
-        <p>
-          Review canonical skills, then test whether a new label should become a
-          new canonical node or a reference to an existing one.
-        </p>
+        <div className="module-header">
+          <div>
+            <h2>Skill tree</h2>
+            <p>
+              Review the live skill graph, choose brainstorm nodes to promote, and resolve
+              duplicate skills before they fragment the tree.
+            </p>
+          </div>
+          <div
+            style={{
+              border: `1px solid ${statusStyle.borderColor}`,
+              background: statusStyle.background,
+              color: statusStyle.color
+            }}
+            className="status-pill"
+          >
+            {moduleStatus}
+          </div>
+        </div>
       </header>
 
-      <div
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          border: `1px solid ${statusStyle.borderColor}`,
-          background: statusStyle.background,
-          color: statusStyle.color,
-          borderRadius: "999px",
-          padding: "0.35rem 0.8rem",
-          fontSize: "0.9rem",
-          marginBottom: "1rem"
-        }}
-      >
-        <strong>Status</strong>
-        <span>{moduleStatus}</span>
-      </div>
-
-      <section style={{ display: "grid", gap: "0.75rem", marginBottom: "1rem" }}>
-        <header>
-          <h3 style={{ marginBottom: "0.25rem" }}>Canonical skill inventory</h3>
-          <p style={{ margin: 0, color: "#57534e" }}>
-            {model.inventorySummary.totalCanonicalSkills} canonical skills,{" "}
-            {model.inventorySummary.totalReferenceNodes} reference nodes,{" "}
-            {model.inventorySummary.totalSkillGraphNodes} skill-graph nodes in
-            the current demo snapshot.
-          </p>
-        </header>
-
-        {loading ? <p>Loading skill graph snapshot…</p> : null}
-
-        <div style={{ display: "grid", gap: "0.75rem" }}>
-          {model.inventoryEntries.map((entry) => (
-            <article
-              key={entry.skillId}
-              style={{
-                border: "1px solid #e7e5e4",
-                borderRadius: "1rem",
-                padding: "0.9rem 1rem",
-                background: "#fafaf9"
-              }}
-            >
-              <strong>{entry.canonicalLabel}</strong>
-              <p style={{ margin: "0.35rem 0", color: "#57534e" }}>
-                {entry.sourceSummary}
+      <div className="workspace-layout">
+        <aside className="workspace-sidebar">
+          <section className="workspace-card workspace-card--sidebar">
+            <div className="workspace-card__header">
+              <strong>Canonical skill inventory</strong>
+              <p>
+                {model.inventorySummary.totalCanonicalSkills} canonical skills,{" "}
+                {model.inventorySummary.totalReferenceNodes} references,{" "}
+                {model.inventorySummary.totalSkillGraphNodes} visible graph nodes.
               </p>
-              <p style={{ margin: 0, fontSize: "0.92rem", color: "#44403c" }}>
-                {entry.referenceSummary}
-              </p>
-            </article>
-          ))}
+            </div>
+            {loading ? <p className="callout">Loading skill graph snapshot…</p> : null}
+            {error ? <p className="callout callout--error">{error}</p> : null}
+            {localFeedback ? <p className="callout">{localFeedback}</p> : null}
 
-          {!loading && model.inventoryEntries.length === 0 ? (
-            <p>No canonical skills are available yet.</p>
-          ) : null}
-        </div>
-      </section>
-
-      <section style={{ display: "grid", gap: "0.75rem" }}>
-        <header>
-          <h3 style={{ marginBottom: "0.25rem" }}>Duplicate guidance</h3>
-          <p style={{ margin: 0, color: "#57534e" }}>
-            Use this check before creating a new skill node so the demo can show
-            canonical-versus-reference decisions.
-          </p>
-        </header>
-
-        <form
-          onSubmit={handleDuplicateCheck}
-          style={{ display: "grid", gap: "0.75rem" }}
-        >
-          <label style={{ display: "grid", gap: "0.35rem" }}>
-            <span>Skill label to check</span>
-            <input
-              value={queryLabel}
-              onChange={(event) => setQueryLabel(event.target.value)}
-              placeholder="TypeScript"
-              style={{
-                borderRadius: "0.8rem",
-                border: "1px solid #d6d3d1",
-                padding: "0.7rem 0.85rem"
-              }}
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={pending}
-            style={{
-              justifySelf: "start",
-              border: "none",
-              borderRadius: "999px",
-              padding: "0.7rem 1rem",
-              background: "#0f766e",
-              color: "white",
-              fontWeight: 600,
-              cursor: pending ? "wait" : "pointer"
-            }}
-          >
-            {pending ? "Checking…" : "Check duplicate guidance"}
-          </button>
-        </form>
-
-        {model.duplicateSummary ? (
-          <article
-            style={{
-              border: "1px solid #d6d3d1",
-              borderRadius: "1rem",
-              padding: "1rem",
-              background: "#ffffff"
-            }}
-          >
-            <p style={{ marginTop: 0 }}>
-              <strong>{model.duplicateSummary.strategyLabel}</strong>
-            </p>
-            <p>{model.duplicateSummary.guidance}</p>
-            <p style={{ color: "#57534e", fontSize: "0.92rem" }}>
-              Normalized label: {model.duplicateSummary.normalizedLabel}
-              {model.duplicateSummary.exactMatch ? " · Exact match found" : ""}
-            </p>
-            <ul style={{ marginBottom: 0 }}>
-              {model.duplicateSummary.candidateSummaries.map((candidateSummary) => (
-                <li key={candidateSummary}>{candidateSummary}</li>
+            <div className="stack-list">
+              {model.inventoryEntries.map((entry) => (
+                <div key={entry.skillId} className="stack-list__card">
+                  <strong>{entry.canonicalLabel}</strong>
+                  <span>{entry.sourceSummary}</span>
+                  <span>{entry.referenceSummary}</span>
+                </div>
               ))}
-            </ul>
-          </article>
-        ) : null}
+            </div>
+          </section>
 
-        {error ? <p className="callout callout--error">{error}</p> : null}
-        {localFeedback ? <p className="callout">{localFeedback}</p> : null}
-      </section>
+          <section className="workspace-card workspace-card--sidebar">
+            <div className="workspace-card__header">
+              <strong>Promotion candidates</strong>
+              <p>These brainstorm nodes can become canonical skills or references.</p>
+            </div>
+
+            <div className="stack-list">
+              {model.promotionCandidates.map((candidate) => (
+                <button
+                  key={candidate.nodeId}
+                  type="button"
+                  className={
+                    selectedPromotionCandidate?.nodeId === candidate.nodeId
+                      ? "stack-list__item stack-list__item--active"
+                      : "stack-list__item"
+                  }
+                  onClick={() => {
+                    setSelectedCandidateNodeId(candidate.nodeId);
+                    setQueryLabel(candidate.label);
+                    void runDuplicateCheck(candidate.label);
+                  }}
+                >
+                  <span>{candidate.label}</span>
+                  <span>{candidate.locationSummary}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="segmented-actions">
+              <button
+                type="button"
+                onClick={() => void runPromotionWorkflow("promote")}
+                disabled={pending || !selectedPromotionCandidate}
+              >
+                Promote to canonical
+              </button>
+            </div>
+          </section>
+        </aside>
+
+        <section className="workspace-main">
+          <div className="workspace-summary">
+            <div className="summary-chip">
+              <strong>Skill graph preview</strong>
+              <span>The current canonical tree and references.</span>
+            </div>
+            <div className="summary-chip">
+              <strong>
+                {selectedPromotionCandidate?.label ?? "No brainstorm node selected"}
+              </strong>
+              <span>
+                {selectedPromotionCandidate
+                  ? `Source: ${selectedPromotionCandidate.canvasName}`
+                  : "Choose a node to run duplicate checks."}
+              </span>
+            </div>
+          </div>
+
+          <GraphCanvasSurface
+            title="Skill tree"
+            nodes={model.skillGraphView?.nodes ?? []}
+            edges={model.skillGraphView?.edges ?? []}
+            emptyMessage="Promote a brainstorm node to start building the skill tree."
+            readOnly
+          />
+
+          <div className="workspace-grid workspace-grid--two-up">
+            <section className="workspace-card">
+              <div className="workspace-card__header">
+                <strong>Duplicate guidance</strong>
+                <p>Check the selected brainstorm node before creating a new canonical skill.</p>
+              </div>
+              <form className="stack-form" onSubmit={(event) => void handleDuplicateCheck(event)}>
+                <label className="stack-form__field">
+                  <span>Skill label to check</span>
+                  <input
+                    value={queryLabel}
+                    onChange={(event) => setQueryLabel(event.target.value)}
+                    placeholder="TypeScript"
+                  />
+                </label>
+                <button type="submit" disabled={pending}>
+                  {pending ? "Checking..." : "Check duplicate guidance"}
+                </button>
+              </form>
+
+              {model.duplicateSummary ? (
+                <div className="decision-panel">
+                  <strong>{model.duplicateSummary.strategyLabel}</strong>
+                  <p>{model.duplicateSummary.guidance}</p>
+                  <p className="section-kicker">Decision checklist</p>
+                  <div className="stack-list">
+                    {model.duplicateSummary.candidateModels.map((candidate) => (
+                      <button
+                        key={candidate.skillId}
+                        type="button"
+                        className="stack-list__item"
+                        onClick={() => void runPromotionWorkflow("resolve", candidate.skillId)}
+                        disabled={pending || !selectedPromotionCandidate}
+                      >
+                        <span>{candidate.canonicalLabel}</span>
+                        <span>{candidate.summary}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="muted-copy">Run a duplicate check to see candidate strategies.</p>
+              )}
+            </section>
+
+            <section className="workspace-card">
+              <div className="workspace-card__header">
+                <strong>Add reference node</strong>
+                <p>Create an explicit reference node in the skill graph.</p>
+              </div>
+
+              <form className="stack-form" onSubmit={(event) => void handleCreateReference(event)}>
+                <label className="stack-form__field">
+                  <span>Canonical skill</span>
+                  <select
+                    value={referenceSkillId}
+                    onChange={(event) => setReferenceSkillId(event.target.value)}
+                  >
+                    {activeSnapshot.inventory.map((entry) => (
+                      <option key={entry.skillId} value={entry.skillId}>
+                        {entry.canonicalLabel}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="stack-form__field">
+                  <span>Reference label</span>
+                  <input
+                    value={referenceLabel}
+                    onChange={(event) => setReferenceLabel(event.target.value)}
+                    placeholder="Practice TypeScript in project work"
+                  />
+                </label>
+                <button type="submit" disabled={pending || !referenceSkillId}>
+                  Create reference node
+                </button>
+              </form>
+            </section>
+          </div>
+        </section>
+      </div>
     </article>
   );
 }

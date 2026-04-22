@@ -286,4 +286,81 @@ describe("graph-service canvas routes", () => {
       )
     ).toBe(false);
   });
+
+  it("reparents a node by replacing its contains edge", async () => {
+    const { baseUrl } = await startServer();
+
+    const siblingResponse = await fetch(
+      `${baseUrl}/v1/canvases/can_brainstorm_inbox/nodes`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          label: "Node.js runtime",
+          category: "skill",
+          position: {
+            x: 300,
+            y: 100
+          }
+        })
+      }
+    );
+    const siblingPayload = await readJson<{ node: GraphNode }>(siblingResponse);
+
+    const childResponse = await fetch(`${baseUrl}/v1/canvases/can_brainstorm_inbox/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "Node event loop notes",
+        category: "note",
+        parentNodeId: "nod_brainstorm_typescript"
+      })
+    });
+    const childPayload = await readJson<{ node: GraphNode }>(childResponse);
+
+    const reparentResponse = await fetch(
+      `${baseUrl}/v1/canvases/can_brainstorm_inbox/nodes/${childPayload.node.id}`,
+      {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          parentNodeId: siblingPayload.node.id
+        })
+      }
+    );
+
+    const reparentPayload = await readJson<{ node: GraphNode }>(reparentResponse);
+
+    expect(reparentResponse.status).toBe(200);
+    expect(reparentPayload.node.parentNodeId).toBe(siblingPayload.node.id);
+
+    const graphResponse = await fetch(`${baseUrl}/v1/canvases/can_brainstorm_inbox/graph`);
+    const graphPayload = await readJson<{
+      nodes: GraphNode[];
+      edges: GraphEdge[];
+    }>(graphResponse);
+
+    expect(
+      graphPayload.edges.some(
+        (edge) =>
+          edge.kind === "contains" &&
+          edge.sourceNodeId === siblingPayload.node.id &&
+          edge.targetNodeId === childPayload.node.id
+      )
+    ).toBe(true);
+    expect(
+      graphPayload.edges.some(
+        (edge) =>
+          edge.kind === "contains" &&
+          edge.sourceNodeId === "nod_brainstorm_typescript" &&
+          edge.targetNodeId === childPayload.node.id
+      )
+    ).toBe(false);
+  });
 });

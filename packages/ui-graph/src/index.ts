@@ -68,6 +68,12 @@ export interface GraphCanvasView {
   readonly edges: readonly GraphEdgeViewModel[];
 }
 
+export interface NodePlacement {
+  readonly x: number;
+  readonly y: number;
+  readonly parentNodeId?: string;
+}
+
 export type GraphCanvasViewModel = GraphCanvasView;
 
 export const CATEGORY_COLOR_TOKENS: Readonly<Record<GraphNodeCategory, string>> = {
@@ -306,6 +312,96 @@ export function createDemoGraph(): GraphCanvasView {
         relationship: "relates-to"
       }
     ]
+  };
+}
+
+export function deriveRootNodePlacement(
+  nodes: readonly GraphNodeViewModel[]
+): NodePlacement {
+  if (nodes.length === 0) {
+    return {
+      x: START_X,
+      y: START_Y
+    };
+  }
+
+  const rootNodes = nodes.filter((node) => !node.parentNodeId);
+  const leftmostX = Math.min(
+    ...(rootNodes.length > 0 ? rootNodes : nodes).map((node) => node.position.x)
+  );
+  const maxY = Math.max(...nodes.map((node) => node.position.y));
+
+  return {
+    x: leftmostX,
+    y: maxY + VERTICAL_GAP
+  };
+}
+
+export function deriveChildNodePlacement(
+  nodes: readonly GraphNodeViewModel[],
+  parentNodeId: string
+): NodePlacement {
+  const parentNode = nodes.find((node) => node.id === parentNodeId);
+
+  if (!parentNode) {
+    return deriveRootNodePlacement(nodes);
+  }
+
+  const siblingNodes = nodes.filter((node) => node.parentNodeId === parentNodeId);
+  const nextY =
+    siblingNodes.length <= 1
+      ? parentNode.position.y + VERTICAL_GAP
+      : Math.max(...siblingNodes.map((node) => node.position.y)) + VERTICAL_GAP;
+
+  return {
+    parentNodeId,
+    x: parentNode.position.x + HORIZONTAL_GAP,
+    y: nextY
+  };
+}
+
+export function deriveSiblingNodePlacement(
+  nodes: readonly GraphNodeViewModel[],
+  anchorNodeId: string
+): NodePlacement {
+  const anchorNode = nodes.find((node) => node.id === anchorNodeId);
+
+  if (!anchorNode) {
+    return deriveRootNodePlacement(nodes);
+  }
+
+  if (!anchorNode.parentNodeId) {
+    return deriveRootNodePlacement(nodes);
+  }
+
+  return deriveChildNodePlacement(nodes, anchorNode.parentNodeId);
+}
+
+export function deriveReparentedNodePlacement(
+  nodes: readonly GraphNodeViewModel[],
+  input: {
+    readonly nodeId: string;
+    readonly nextParentNodeId: string;
+  }
+): NodePlacement {
+  const nextParent = nodes.find((node) => node.id === input.nextParentNodeId);
+
+  if (!nextParent) {
+    return deriveRootNodePlacement(nodes);
+  }
+
+  const nextSiblingNodes = nodes.filter(
+    (node) =>
+      node.parentNodeId === input.nextParentNodeId && node.id !== input.nodeId
+  );
+  const maxSiblingY = nextSiblingNodes.length
+    ? Math.max(...nextSiblingNodes.map((node) => node.position.y))
+    : nextParent.position.y - VERTICAL_GAP;
+
+  return {
+    parentNodeId: input.nextParentNodeId,
+    x: nextParent.position.x + HORIZONTAL_GAP,
+    y: maxSiblingY + VERTICAL_GAP
   };
 }
 

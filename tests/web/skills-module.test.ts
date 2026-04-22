@@ -112,6 +112,30 @@ describe("skills module", () => {
             }
           }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            canvas: {
+              id: "can_skill_graph",
+              name: "Skill Graph",
+              mode: "skill-graph",
+              sortOrder: 0,
+              workspaceId: "wrk_demo_owner",
+              createdBy: "act_demo_owner",
+              createdAt: "2026-04-22T08:00:00.000Z",
+              updatedAt: "2026-04-22T08:00:00.000Z"
+            },
+            nodes: [],
+            edges: []
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        )
       );
 
     const port = createSkillsGatewayPort("http://localhost:4000", fetcher);
@@ -120,6 +144,7 @@ describe("skills module", () => {
     await port.checkDuplicate({
       label: "TypeScript"
     });
+    await port.getSkillGraph();
 
     expect(fetcher).toHaveBeenNthCalledWith(
       1,
@@ -138,6 +163,11 @@ describe("skills module", () => {
           label: "TypeScript"
         })
       }
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      3,
+      "http://localhost:4000/api/v1/canvases/can_skill_graph/graph",
+      undefined
     );
   });
 
@@ -181,10 +211,12 @@ describe("skills module", () => {
       })
     );
 
-    expect(markup).toContain("Skill graph module");
+    expect(markup).toContain("Skill tree");
     expect(markup).toContain("Canonical skill inventory");
+    expect(markup).toContain("Skill graph preview");
     expect(markup).toContain("TypeScript");
     expect(markup).toContain("Duplicate guidance");
+    expect(markup).toContain("Decision checklist");
     expect(markup).toContain("create a reference node");
     expect(markup).toContain("Duplicate check complete.");
   });

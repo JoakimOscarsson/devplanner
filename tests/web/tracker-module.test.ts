@@ -241,7 +241,9 @@ describe("tracker module", () => {
   });
 
   it("builds a demo-friendly tracker panel model", () => {
-    const model = buildTrackerPanelModel(createSnapshot());
+    const model = buildTrackerPanelModel(createSnapshot(), {
+      lagFilter: "stale"
+    });
 
     expect(model.overviewMetrics.completionPercentLabel).toBe("63%");
     expect(model.lagMetrics.maxLagLabel).toContain("13m");
@@ -251,6 +253,8 @@ describe("tracker module", () => {
       statusTone: "stale"
     });
     expect(model.selectedGoal?.title).toBe("Ship system design portfolio refresh");
+    expect(model.lagEntries).toHaveLength(1);
+    expect(model.lagEntries[0]?.projectionName).toContain("goal-progress");
   });
 
   it("renders overview, lag, and selected goal projection details", () => {
@@ -274,9 +278,11 @@ describe("tracker module", () => {
       })
     );
 
-    expect(markup).toContain("Tracker module");
+    expect(markup).toContain("Tracking");
     expect(markup).toContain("Workspace overview");
     expect(markup).toContain("Projection lag");
+    expect(markup).toContain("Stale only");
+    expect(markup).toContain("Goal focus");
     expect(markup).toContain("Ship system design portfolio refresh");
     expect(markup).toContain("Projection refreshed from the latest planner events.");
   });

@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { GraphEdge, GraphNode } from "@pdp-helper/contracts-graph";
 import {
   createDeterministicAutoLayout,
+  deriveChildNodePlacement,
+  deriveReparentedNodePlacement,
+  deriveRootNodePlacement,
+  deriveSiblingNodePlacement,
   needsBrainstormAutoLayout,
   toGraphCanvasViewModel
 } from "@pdp-helper/ui-graph";
@@ -272,5 +276,73 @@ describe("ui-graph", () => {
       nod_autolayout_b: { x: 328, y: 48 }
     });
     expect(needsBrainstormAutoLayout(arranged.nodes)).toBe(false);
+  });
+
+  it("derives deterministic placements for root, child, sibling, and reparent flows", () => {
+    const nodes = [
+      {
+        id: "nod_root",
+        label: "Root",
+        category: "skill",
+        role: "brainstorm",
+        visualKind: "standard",
+        colorToken: "emerald",
+        position: { x: 48, y: 48 }
+      },
+      {
+        id: "nod_child_a",
+        label: "Child A",
+        category: "project",
+        role: "brainstorm",
+        visualKind: "standard",
+        colorToken: "blue",
+        parentNodeId: "nod_root",
+        position: { x: 288, y: 48 }
+      },
+      {
+        id: "nod_child_b",
+        label: "Child B",
+        category: "course",
+        role: "brainstorm",
+        visualKind: "standard",
+        colorToken: "teal",
+        parentNodeId: "nod_root",
+        position: { x: 288, y: 208 }
+      },
+      {
+        id: "nod_other",
+        label: "Other",
+        category: "note",
+        role: "brainstorm",
+        visualKind: "standard",
+        colorToken: "stone",
+        position: { x: 48, y: 248 }
+      }
+    ] as const;
+
+    expect(deriveRootNodePlacement(nodes)).toEqual({
+      x: 48,
+      y: 408
+    });
+    expect(deriveChildNodePlacement(nodes, "nod_root")).toEqual({
+      parentNodeId: "nod_root",
+      x: 288,
+      y: 368
+    });
+    expect(deriveSiblingNodePlacement(nodes, "nod_child_a")).toEqual({
+      parentNodeId: "nod_root",
+      x: 288,
+      y: 368
+    });
+    expect(
+      deriveReparentedNodePlacement(nodes, {
+        nodeId: "nod_child_a",
+        nextParentNodeId: "nod_other"
+      })
+    ).toEqual({
+      parentNodeId: "nod_other",
+      x: 288,
+      y: 248
+    });
   });
 });

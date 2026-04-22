@@ -1,5 +1,7 @@
+import { toGraphCanvasViewModel } from "@pdp-helper/ui-graph";
 import type {
   DuplicateSkillCheckResult,
+  PromotionCandidate,
   SkillInventoryEntry,
   SkillsSnapshot
 } from "./skills-gateway";
@@ -19,6 +21,22 @@ export interface SkillsInventoryEntryModel {
   readonly referenceSummary: string;
 }
 
+export interface PromotionCandidateModel {
+  readonly nodeId: string;
+  readonly label: string;
+  readonly category: string;
+  readonly locationSummary: string;
+}
+
+export interface DuplicateCandidateModel {
+  readonly skillId: string;
+  readonly canonicalLabel: string;
+  readonly summary: string;
+  readonly strategy:
+    | "use-existing-canonical"
+    | "create-reference-to-existing";
+}
+
 export interface SkillsDuplicateSummaryModel {
   readonly queryLabel: string;
   readonly normalizedLabel: string;
@@ -27,12 +45,15 @@ export interface SkillsDuplicateSummaryModel {
   readonly exactMatch: boolean;
   readonly candidateLabels: readonly string[];
   readonly candidateSummaries: readonly string[];
+  readonly candidateModels: readonly DuplicateCandidateModel[];
 }
 
 export interface SkillsPanelModel {
   readonly inventorySummary: SkillsInventorySummaryModel;
   readonly inventoryEntries: readonly SkillsInventoryEntryModel[];
+  readonly promotionCandidates: readonly PromotionCandidateModel[];
   readonly duplicateSummary: SkillsDuplicateSummaryModel | null;
+  readonly skillGraphView: ReturnType<typeof toGraphCanvasViewModel> | null;
 }
 
 export const EMPTY_SKILLS_SNAPSHOT: SkillsSnapshot = {
@@ -41,11 +62,22 @@ export const EMPTY_SKILLS_SNAPSHOT: SkillsSnapshot = {
     totalCanonicalSkills: 0,
     totalReferenceNodes: 0,
     totalSkillGraphNodes: 0
-  }
+  },
+  promotionCandidates: []
 };
 
 function compareInventory(left: SkillInventoryEntry, right: SkillInventoryEntry) {
   return left.canonicalLabel.localeCompare(right.canonicalLabel);
+}
+
+function comparePromotionCandidates(left: PromotionCandidate, right: PromotionCandidate) {
+  const labelDifference = left.label.localeCompare(right.label);
+
+  if (labelDifference !== 0) {
+    return labelDifference;
+  }
+
+  return left.canvasName.localeCompare(right.canvasName);
 }
 
 function getStrategyLabel(result: DuplicateSkillCheckResult) {
@@ -74,6 +106,15 @@ export function buildSkillsPanelModel(snapshot: SkillsSnapshot): SkillsPanelMode
           : `${entry.referenceCount} reference nodes`
     })) satisfies SkillsInventoryEntryModel[];
 
+  const promotionCandidates = [...(snapshot.promotionCandidates ?? [])]
+    .sort(comparePromotionCandidates)
+    .map((candidate) => ({
+      nodeId: candidate.nodeId,
+      label: candidate.label,
+      category: candidate.category,
+      locationSummary: `${candidate.canvasName} • ${candidate.category}`
+    })) satisfies PromotionCandidateModel[];
+
   const duplicateSummary = snapshot.duplicateCheck
     ? {
         queryLabel: snapshot.duplicateCheck.queryLabel,
@@ -96,7 +137,18 @@ export function buildSkillsPanelModel(snapshot: SkillsSnapshot): SkillsPanelMode
               : `${candidate.referenceCount} reference nodes`;
 
           return `${matchTone}: ${candidate.canonicalLabel} ${sourceTone}, ${referenceTone}.`;
-        })
+        }),
+        candidateModels: snapshot.duplicateCheck.candidates.map((candidate) => ({
+          skillId: candidate.skillId,
+          canonicalLabel: candidate.canonicalLabel,
+          summary: candidate.sourceCanvasName
+            ? `${candidate.matchKind === "exact" ? "Exact" : "Related"} match from ${candidate.sourceCanvasName}`
+            : `${candidate.matchKind === "exact" ? "Exact" : "Related"} match`,
+          strategy:
+            candidate.matchKind === "exact"
+              ? "create-reference-to-existing"
+              : "use-existing-canonical"
+        }))
       } satisfies SkillsDuplicateSummaryModel
     : null;
 
@@ -107,6 +159,14 @@ export function buildSkillsPanelModel(snapshot: SkillsSnapshot): SkillsPanelMode
       totalSkillGraphNodes: snapshot.summary.totalSkillGraphNodes
     },
     inventoryEntries,
-    duplicateSummary
+    promotionCandidates,
+    duplicateSummary,
+    skillGraphView: snapshot.skillGraph
+      ? toGraphCanvasViewModel({
+          mode: snapshot.skillGraph.canvas.mode,
+          nodes: snapshot.skillGraph.nodes,
+          edges: snapshot.skillGraph.edges
+        })
+      : null
   };
 }

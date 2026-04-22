@@ -1,7 +1,6 @@
 import {
   ID_PREFIXES,
   type ActorId,
-  type CommonErrorCode,
   type DomainError,
   type IsoDateTime,
   type JsonObject,
@@ -71,6 +70,16 @@ interface DuplicateSkillCheckResult {
   };
 }
 
+interface SkillPromotionResult {
+  skill: SkillRecord;
+  skillNode: NodeRecord;
+}
+
+interface DuplicateResolutionResult {
+  canonicalSkill: SkillRecord;
+  referenceNode: NodeRecord;
+}
+
 interface GraphSeed {
   canvases: CanvasRecord[];
   nodes: NodeRecord[];
@@ -129,7 +138,7 @@ function getReferenceNodesForSkill(skillId: Skill["id"]) {
   );
 }
 
-function storeError<TCode extends CommonErrorCode>(
+function storeError<TCode extends string>(
   code: TCode,
   message: string,
   status: number,
@@ -347,6 +356,38 @@ function assertNodeInCanvas(canvasId: Canvas["id"], nodeId: GraphNode["id"]) {
   return node;
 }
 
+function assertNode(nodeId: GraphNode["id"]) {
+  const node = graphStore.nodes.find((entry) => entry.id === nodeId);
+
+  if (!node) {
+    throw storeError("NOT_FOUND", `Node ${nodeId} was not found.`, 404);
+  }
+
+  return node;
+}
+
+function assertSkill(skillId: Skill["id"]) {
+  const skill = graphStore.skills.find((entry) => entry.id === skillId);
+
+  if (!skill) {
+    throw storeError("NOT_FOUND", `Skill ${skillId} was not found.`, 404);
+  }
+
+  return skill;
+}
+
+function getSkillGraphCanvas() {
+  const canvas = graphStore.canvases.find(
+    (entry) => entry.mode === "skill-graph" && entry.id === ("can_skill_graph" as Canvas["id"])
+  );
+
+  if (!canvas) {
+    throw storeError("NOT_FOUND", "Skill graph canvas was not found.", 404);
+  }
+
+  return canvas;
+}
+
 function assertParentNode(
   canvasId: Canvas["id"],
   nodeId: GraphNode["id"],
@@ -402,6 +443,98 @@ function replaceParentEdge(
       ...auditFields(timestamp)
     }
   ];
+}
+
+function nextSkillGraphPosition(role: "skill" | "reference") {
+  const canvasId = getSkillGraphCanvas().id;
+  const roleNodes = graphStore.nodes.filter(
+    (node) => node.canvasId === canvasId && node.role === role
+  );
+  const index = roleNodes.length;
+
+  return role === "skill"
+    ? {
+        x: 96 + (index % 3) * 220,
+        y: 88 + Math.floor(index / 3) * 180
+      }
+    : {
+        x: 96 + (index % 3) * 220,
+        y: 228 + Math.floor(index / 3) * 180
+      };
+}
+
+function findSkillGraphNode(skillId: Skill["id"]) {
+  const skillGraphCanvasId = getSkillGraphCanvas().id;
+
+  return graphStore.nodes.find(
+    (node) =>
+      node.canvasId === skillGraphCanvasId &&
+      node.role === "skill" &&
+      node.metadata &&
+      typeof node.metadata.skillId === "string" &&
+      node.metadata.skillId === skillId
+  );
+}
+
+function createSkillGraphNode(skill: SkillRecord, sourceNode: NodeRecord) {
+  const timestamp = now();
+  const skillNode: NodeRecord = {
+    id: buildId(ID_PREFIXES.node) as GraphNode["id"],
+    canvasId: getSkillGraphCanvas().id,
+    role: "skill",
+    category: "skill",
+    label: skill.canonicalLabel,
+    normalizedLabel: skill.normalizedLabel,
+    position: nextSkillGraphPosition("skill"),
+    source: "user",
+    metadata: {
+      skillId: skill.id,
+      sourceNodeId: sourceNode.id
+    },
+    ...auditFields(timestamp)
+  };
+
+  graphStore.nodes = [...graphStore.nodes, skillNode];
+
+  return skillNode;
+}
+
+function createSkillReferenceNode(input: {
+  canonicalSkill: SkillRecord;
+  label: string;
+  canvasId?: Canvas["id"];
+  sourceNodeId?: GraphNode["id"];
+  referenceNodeId?: GraphNode["id"];
+  position?: GraphNodePosition;
+}) {
+  const canvasId = input.canvasId ?? getSkillGraphCanvas().id;
+  assertCanvas(canvasId);
+
+  if (input.referenceNodeId) {
+    assertNode(input.referenceNodeId);
+  }
+
+  const timestamp = now();
+  const referenceNode: NodeRecord = {
+    id: buildId(ID_PREFIXES.node) as GraphNode["id"],
+    canvasId,
+    role: "reference",
+    category: "skill",
+    label: input.label.trim(),
+    normalizedLabel: normalizeLabel(input.label),
+    position: input.position ?? nextSkillGraphPosition("reference"),
+    source: "user",
+    metadata: {
+      skillId: input.canonicalSkill.id,
+      ...(input.sourceNodeId ? { sourceNodeId: input.sourceNodeId } : {}),
+      ...(input.referenceNodeId ? { referenceNodeId: input.referenceNodeId } : {})
+    },
+    ...auditFields(timestamp)
+  };
+
+  graphStore.nodes = [...graphStore.nodes, referenceNode];
+
+  return referenceNode;
 }
 
 function reorderBrainstormCanvases(
@@ -709,6 +842,13 @@ export function getSkillInventory(): SkillInventorySnapshot {
   };
 }
 
+export function getSkillInventorySnapshot() {
+  return {
+    ...getSkillInventory(),
+    skillGraph: getCanvasGraph(getSkillGraphCanvas().id)!
+  };
+}
+
 export function checkDuplicateSkill(label: string): DuplicateSkillCheckResult {
   const queryLabel = label.trim();
   const normalized = normalizeLabel(queryLabel);
@@ -760,5 +900,128 @@ export function checkDuplicateSkill(label: string): DuplicateSkillCheckResult {
       totalCandidates: candidates.length,
       exactMatchCount
     }
+  };
+}
+
+export function promoteNodeToSkill(
+  nodeId: GraphNode["id"],
+  preferredSkillId: Skill["id"]
+): SkillPromotionResult {
+  const sourceNode = assertNode(nodeId);
+  const normalizedLabel = normalizeLabel(sourceNode.label);
+  const duplicateCandidates = findDuplicateSkillCandidates(sourceNode.label);
+
+  if (duplicateCandidates.some((candidate) => candidate.normalizedLabel === normalizedLabel)) {
+    throw storeError(
+      "SKILL_RESOLUTION_REQUIRED",
+      "Duplicate skill resolution is required before promoting this node.",
+      409,
+      {
+        normalizedLabel,
+        candidates: duplicateCandidates.map((candidate) => ({
+          skillId: candidate.skillId,
+          canonicalLabel: candidate.canonicalLabel,
+          normalizedLabel: candidate.normalizedLabel,
+          similarityScore: candidate.similarityScore,
+          ...(candidate.sourceNodeId ? { sourceNodeId: candidate.sourceNodeId } : {})
+        })),
+        sourceNodeId: nodeId
+      }
+    );
+  }
+
+  if (graphStore.skills.some((skill) => skill.id === preferredSkillId)) {
+    throw storeError(
+      "VALIDATION_FAILED",
+      `Skill ${preferredSkillId} already exists.`,
+      422,
+      {
+        issues: [
+          {
+            path: "preferredSkillId",
+            rule: "unique",
+            message: "preferredSkillId must be unique."
+          }
+        ]
+      }
+    );
+  }
+
+  const timestamp = now();
+  const skill: SkillRecord = {
+    id: preferredSkillId,
+    canonicalLabel: sourceNode.label,
+    normalizedLabel,
+    sourceNodeId: sourceNode.id,
+    ...auditFields(timestamp)
+  };
+
+  graphStore.skills = [...graphStore.skills, skill];
+  const skillNode = createSkillGraphNode(skill, sourceNode);
+
+  return {
+    skill,
+    skillNode
+  };
+}
+
+export function resolveDuplicateSkill(
+  nodeId: GraphNode["id"],
+  canonicalSkillId: Skill["id"],
+  strategy: "use-existing-canonical" | "create-reference-to-existing"
+): DuplicateResolutionResult {
+  const sourceNode = assertNode(nodeId);
+  const canonicalSkill = assertSkill(canonicalSkillId);
+
+  if (strategy === "use-existing-canonical") {
+    const existingSkillNode = findSkillGraphNode(canonicalSkill.id);
+
+    if (!existingSkillNode) {
+      throw storeError(
+        "NOT_FOUND",
+        `Skill graph node for ${canonicalSkillId} was not found.`,
+        404
+      );
+    }
+
+    return {
+      canonicalSkill,
+      referenceNode: existingSkillNode
+    };
+  }
+
+  const referenceNode = createSkillReferenceNode({
+    canonicalSkill,
+    label: sourceNode.label,
+    sourceNodeId: sourceNode.id
+  });
+
+  return {
+    canonicalSkill,
+    referenceNode
+  };
+}
+
+export function createSkillReference(
+  skillId: Skill["id"],
+  input: {
+    canvasId: Canvas["id"];
+    label: string;
+    referenceNodeId?: GraphNode["id"];
+    position?: GraphNodePosition;
+  }
+) {
+  const canonicalSkill = assertSkill(skillId);
+  const referenceNode = createSkillReferenceNode({
+    canonicalSkill,
+    canvasId: input.canvasId,
+    label: input.label,
+    referenceNodeId: input.referenceNodeId,
+    position: input.position
+  });
+
+  return {
+    canonicalSkill,
+    referenceNode
   };
 }

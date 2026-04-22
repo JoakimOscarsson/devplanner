@@ -1,9 +1,15 @@
-import {
-  buildNavigation,
-  summarizeUnavailableModules
-} from "@pdp-helper/ui-shell";
-import { useGatewayState } from "@pdp-helper/runtime-web";
+import { useEffect, useMemo, useState } from "react";
+import type { ModuleCapability, ServiceHealthSnapshot } from "@pdp-helper/contracts-core";
+import { useGatewayState, type GatewayState } from "@pdp-helper/runtime-web";
 import { gatewayUrl } from "../lib/gateway";
+import {
+  buildShellPageNavigation,
+  createShellPageHref,
+  getShellPage,
+  resolveShellPage,
+  type ShellPageId,
+  type ShellPageNavItem
+} from "../lib/shell-pages";
 import { BrainstormSpotlight } from "../modules/brainstorm/BrainstormSpotlight";
 import { ExternalToolsSpotlight } from "../modules/external-tools/ExternalToolsSpotlight";
 import { PlannerSpotlight } from "../modules/planner/PlannerSpotlight";
@@ -11,171 +17,336 @@ import { RecommendationsSpotlight } from "../modules/recommendations/Recommendat
 import { SkillsSpotlight } from "../modules/skills/SkillsSpotlight";
 import { TrackerSpotlight } from "../modules/tracker/TrackerSpotlight";
 
-export function AppShell() {
-  const { modules, services, error } = useGatewayState(gatewayUrl);
-  const navigation = buildNavigation(modules);
-  const unavailableMessages = summarizeUnavailableModules(modules);
-  const brainstormModule = modules.find((module) => module.key === "brainstorm");
-  const plannerModule = modules.find((module) => module.key === "planner");
-  const skillsModule = modules.find((module) => module.key === "skill-graph");
-  const trackerModule = modules.find((module) => module.key === "tracker");
-  const recommendationsModule = modules.find(
-    (module) => module.key === "recommendations"
+export interface AppShellProps {
+  readonly gatewayState?: GatewayState;
+  readonly initialPath?: string;
+}
+
+function getModule(
+  modules: readonly ModuleCapability[],
+  key: ModuleCapability["key"]
+) {
+  return modules.find((module) => module.key === key);
+}
+
+function formatStatusLabel(status: ModuleCapability["status"] | "unknown") {
+  switch (status) {
+    case "up":
+      return "Ready";
+    case "degraded":
+      return "Degraded";
+    case "down":
+      return "Offline";
+    default:
+      return "Unknown";
+  }
+}
+
+function readBrowserPath() {
+  if (typeof window === "undefined") {
+    return "/";
+  }
+
+  return window.location.hash || "/";
+}
+
+function useShellPage(initialPath?: string) {
+  const [pageId, setPageId] = useState<ShellPageId>(() =>
+    resolveShellPage(initialPath ?? readBrowserPath())
   );
-  const externalToolsModule = modules.find((module) => module.key === "mcp");
+
+  useEffect(() => {
+    if (initialPath !== undefined) {
+      setPageId(resolveShellPage(initialPath));
+      return;
+    }
+
+    function syncPageFromHash() {
+      setPageId(resolveShellPage(readBrowserPath()));
+    }
+
+    syncPageFromHash();
+    window.addEventListener("hashchange", syncPageFromHash);
+
+    return () => {
+      window.removeEventListener("hashchange", syncPageFromHash);
+    };
+  }, [initialPath]);
+
+  function navigate(nextPageId: ShellPageId) {
+    setPageId(nextPageId);
+
+    if (initialPath !== undefined || typeof window === "undefined") {
+      return;
+    }
+
+    window.location.hash = createShellPageHref(nextPageId).slice(1);
+  }
+
+  return {
+    pageId,
+    navigate
+  };
+}
+
+function OverviewPage({
+  navigation,
+  services,
+  gatewayError
+}: {
+  readonly navigation: readonly ShellPageNavItem[];
+  readonly services: readonly ServiceHealthSnapshot[];
+  readonly gatewayError: string | null;
+}) {
+  const primaryPages = navigation.filter((item) => item.primary && item.id !== "overview");
+  const optionalPages = navigation.filter((item) => !item.primary && item.id !== "overview");
+  const readyCount = Math.max(
+    0,
+    navigation.filter((item) => item.enabled).length - 1
+  );
 
   return (
-    <main className="page-shell">
-      <section className="hero-panel">
-        <div className="hero-copy">
-          <p className="eyebrow">PDP Helper</p>
-          <h1>A guided demo path for the stabilization pass.</h1>
-          <p className="hero-body">
-            Start with the two active workflows, check the shared platform state,
-            then browse the supporting modules that round out the shell.
+    <div className="page-stack">
+      <section className="hero-card">
+        <div className="hero-card__copy">
+          <p className="eyebrow">Guided demo</p>
+          <h1>Your development cockpit</h1>
+          <p className="hero-card__body">
+            Keep the demo simple: sketch ideas, review the skill tree, and then
+            check tracking. The supporting modules stay one click away.
           </p>
-          <div className="hero-actions">
-            {navigation.map((item) => (
-              <span
-                key={item.key}
-                className={item.enabled ? "nav-chip" : "nav-chip nav-chip--muted"}
-              >
-                {item.label}
-              </span>
-            ))}
+        </div>
+        <div className="hero-card__summary">
+          <div className="metric-card">
+            <span className="metric-card__label">Ready workspaces</span>
+            <strong>{readyCount}</strong>
+            <p>Pages with live module capability data.</p>
+          </div>
+          <div className="metric-card">
+            <span className="metric-card__label">Service snapshots</span>
+            <strong>{services.length}</strong>
+            <p>Health records reported through the gateway.</p>
           </div>
         </div>
-
-        <aside className="hero-summary panel">
-          <p className="section-kicker">What works now</p>
-          <ul className="summary-list">
-            <li>
-              <strong>Brainstorm</strong>
-              <span>Explore canvases and create new idea nodes.</span>
-            </li>
-            <li>
-              <strong>Planner</strong>
-              <span>Turn a goal into plan items and evidence.</span>
-            </li>
-            <li>
-              <strong>Shell status</strong>
-              <span>Read the capability and service snapshots from the gateway.</span>
-            </li>
-          </ul>
-        </aside>
       </section>
 
-      <section className="section-block">
-        <header className="section-header">
-          <p className="section-kicker">Primary demo modules</p>
-          <h2>Brainstorm and planner lead the experience.</h2>
-          <p>
-            These are the first things to evaluate in the stabilization pass, so
-            they stay at the top of the page.
-          </p>
+      {gatewayError ? <p className="callout callout--error">{gatewayError}</p> : null}
+
+      <section className="content-section">
+        <header className="section-heading">
+          <p className="section-kicker">Primary workspaces</p>
+          <h2>Separate pages for the core flow</h2>
+          <p>These are the cleanest entry points for day-to-day demo use.</p>
         </header>
-        <div className="primary-grid">
-          <BrainstormSpotlight
-            module={brainstormModule}
-            gatewayBaseUrl={gatewayUrl}
-          />
-          <PlannerSpotlight module={plannerModule} />
+        <div className="workspace-grid">
+          {primaryPages.map((page) => (
+            <a key={page.id} href={page.href} className="workspace-card">
+              <div className="workspace-card__topline">
+                <strong>{page.label}</strong>
+                <span className={`status-badge status-badge--${page.status}`}>
+                  {formatStatusLabel(page.status)}
+                </span>
+              </div>
+              <p>{page.description}</p>
+            </a>
+          ))}
         </div>
       </section>
 
-      <section className="section-block">
-        <header className="section-header">
-          <p className="section-kicker">Supporting system status</p>
-          <h2>Capability and health checks sit after the main demo path.</h2>
-          <p>
-            This keeps the shell readable while still surfacing the fallback and
-            degradation signals that matter during evaluation.
-          </p>
+      <section className="content-section">
+        <header className="section-heading">
+          <p className="section-kicker">System view</p>
+          <h2>Services and optional tools</h2>
+          <p>Keep the supporting surfaces visible without crowding the main work.</p>
         </header>
-        <div className="content-grid">
-          <article className="panel">
-            <header className="panel-header">
-              <h3>Module capability state</h3>
-              <p>
-                Derived from the Gateway so the UI can degrade cleanly when
-                optional services are unavailable.
-              </p>
-            </header>
-            <div className="module-grid">
-              {modules.map((module) => (
-                <article key={module.key} className="module-card">
-                  <div className="module-card__topline">
-                    <span>{module.title}</span>
-                    <span className={`status-pill status-pill--${module.status}`}>
-                      {module.status}
-                    </span>
-                  </div>
-                  <p>{module.description}</p>
-                  <div className="module-card__footer">
-                    <span>{module.route}</span>
-                    <span>{module.optional ? "optional" : "core"}</span>
-                  </div>
-                </article>
-              ))}
-            </div>
-            {error ? <p className="callout callout--error">{error}</p> : null}
-            {unavailableMessages.length > 0 ? (
-              <div className="callout">
-                {unavailableMessages.map((message) => (
-                  <p key={message}>{message}</p>
-                ))}
-              </div>
-            ) : null}
-          </article>
-
-          <article className="panel">
+        <div className="status-layout">
+          <article className="panel panel--soft">
             <header className="panel-header">
               <h3>Service health</h3>
-              <p>
-                These snapshots come from the same gateway health surface that
-                the shell uses.
-              </p>
+              <p>These statuses come directly from the gateway health surface.</p>
             </header>
-            <div className="health-list">
-              {services.length === 0 ? (
-                <p className="health-empty">
-                  No downstream snapshots are available yet.
-                </p>
-              ) : (
-                services.map((service) => (
-                  <article key={service.service} className="health-row">
-                    <div>
-                      <strong>{service.service}</strong>
-                      <p>{service.message ?? "Healthy and ready."}</p>
-                    </div>
-                    <span className={`status-pill status-pill--${service.status}`}>
-                      {service.status}
-                    </span>
-                  </article>
-                ))
-              )}
+            <div className="status-stack">
+              {services.map((service) => (
+                <div key={service.service} className="status-row">
+                  <div>
+                    <strong>{service.service}</strong>
+                    <p>{service.message ?? "Healthy and ready."}</p>
+                  </div>
+                  <span className={`status-badge status-badge--${service.status}`}>
+                    {formatStatusLabel(service.status)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <article className="panel panel--soft">
+            <header className="panel-header">
+              <h3>Supporting pages</h3>
+              <p>Optional or downstream capabilities stay available from here.</p>
+            </header>
+            <div className="supporting-list">
+              {optionalPages.map((page) => (
+                <a key={page.id} href={page.href} className="supporting-link">
+                  <span>{page.label}</span>
+                  <span className={`status-badge status-badge--${page.status}`}>
+                    {formatStatusLabel(page.status)}
+                  </span>
+                </a>
+              ))}
             </div>
           </article>
         </div>
       </section>
+    </div>
+  );
+}
 
-      <section className="section-block">
-        <header className="section-header">
-          <p className="section-kicker">Secondary modules</p>
-          <h2>Everything else stays available, but visually downstream.</h2>
-          <p>
-            Skills, tracker, recommendations, and external tools are still part
-            of the shell, just no longer competing with the main demo entry
-            points.
-          </p>
-        </header>
-        <div className="secondary-grid">
-          <SkillsSpotlight module={skillsModule} />
-          <TrackerSpotlight module={trackerModule} />
-          <RecommendationsSpotlight module={recommendationsModule} />
-          <ExternalToolsSpotlight module={externalToolsModule} />
+function ShellPageContent({
+  pageId,
+  modules,
+  services,
+  error
+}: {
+  readonly pageId: ShellPageId;
+  readonly modules: readonly ModuleCapability[];
+  readonly services: readonly ServiceHealthSnapshot[];
+  readonly error: string | null;
+}) {
+  const brainstormModule = getModule(modules, "brainstorm");
+  const skillsModule = getModule(modules, "skill-graph");
+  const plannerModule = getModule(modules, "planner");
+  const trackerModule = getModule(modules, "tracker");
+  const recommendationsModule = getModule(modules, "recommendations");
+  const externalToolsModule = getModule(modules, "mcp");
+  const navigation = buildShellPageNavigation(modules);
+
+  switch (pageId) {
+    case "brainstorm":
+      return <BrainstormSpotlight module={brainstormModule} gatewayBaseUrl={gatewayUrl} />;
+    case "skills":
+      return <SkillsSpotlight module={skillsModule} gatewayBaseUrl={gatewayUrl} />;
+    case "planner":
+      return <PlannerSpotlight module={plannerModule} />;
+    case "tracker":
+      return <TrackerSpotlight module={trackerModule} gatewayBaseUrl={gatewayUrl} />;
+    case "recommendations":
+      return (
+        <RecommendationsSpotlight
+          module={recommendationsModule}
+          gatewayBaseUrl={gatewayUrl}
+        />
+      );
+    case "external-tools":
+      return <ExternalToolsSpotlight module={externalToolsModule} />;
+    case "overview":
+    default:
+      return (
+        <OverviewPage
+          navigation={navigation}
+          services={services}
+          gatewayError={error}
+        />
+      );
+  }
+}
+
+export function AppShell({ gatewayState, initialPath }: AppShellProps) {
+  const liveGatewayState = useGatewayState(gatewayUrl);
+  const { modules, services, error, loading } = gatewayState ?? liveGatewayState;
+  const { pageId, navigate } = useShellPage(initialPath);
+  const navigation = useMemo(() => buildShellPageNavigation(modules), [modules]);
+  const activePage = getShellPage(pageId);
+
+  return (
+    <main className="app-shell">
+      <header className="app-shell__topbar">
+        <div>
+          <p className="eyebrow">PDP Helper</p>
+          <h1 className="app-shell__title">Professional development planner</h1>
         </div>
-      </section>
+        <div className="topbar-status">
+          <span className={`status-badge status-badge--${loading ? "unknown" : "up"}`}>
+            {loading ? "Loading" : "Live"}
+          </span>
+          <p className="topbar-status__copy">
+            Separate workspaces for mind-mapping, skill structure, planning, and
+            tracking.
+          </p>
+        </div>
+      </header>
+
+      <div className="app-shell__layout">
+        <aside className="shell-sidebar panel">
+          <div className="shell-sidebar__section">
+            <p className="section-kicker">Navigate</p>
+            <nav className="shell-nav" aria-label="Primary">
+              {navigation.map((item) => (
+                <a
+                  key={item.id}
+                  href={item.href}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    navigate(item.id);
+                  }}
+                  className={
+                    item.id === pageId
+                      ? "shell-nav__link shell-nav__link--active"
+                      : "shell-nav__link"
+                  }
+                  aria-current={item.id === pageId ? "page" : undefined}
+                >
+                  <span>{item.label}</span>
+                  <span className={`status-dot status-dot--${item.status}`} />
+                </a>
+              ))}
+            </nav>
+          </div>
+
+          <div className="shell-sidebar__section shell-sidebar__section--quiet">
+            <p className="section-kicker">Current page</p>
+            <h2>{activePage.title}</h2>
+            <p>{activePage.description}</p>
+          </div>
+        </aside>
+
+        <section className="page-stage">
+          <header className="page-stage__header panel">
+            <div>
+              <p className="section-kicker">Workspace</p>
+              <h2>{activePage.title}</h2>
+              <p>{activePage.description}</p>
+            </div>
+            <div className="page-stage__actions">
+              {navigation
+                .filter((item) => item.primary && item.id !== pageId)
+                .slice(0, 3)
+                .map((item) => (
+                  <a
+                    key={item.id}
+                    href={item.href}
+                    className="page-chip"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      navigate(item.id);
+                    }}
+                  >
+                    {item.label}
+                  </a>
+                ))}
+            </div>
+          </header>
+
+          <div className="page-stage__content">
+            <ShellPageContent
+              pageId={pageId}
+              modules={modules}
+              services={services}
+              error={error}
+            />
+          </div>
+        </section>
+      </div>
     </main>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ModuleCapability } from "@pdp-helper/ui-shell";
-import type { GoalProgressProjection } from "@pdp-helper/contracts-tracker";
+import type { GoalProgressProjection, ProjectionStatus } from "@pdp-helper/contracts-tracker";
 import { gatewayUrl } from "../../lib/gateway";
 import { createTrackerGatewayPort, loadTrackerSnapshot } from "./tracker-gateway";
 import {
@@ -92,6 +92,7 @@ export function TrackerSpotlight({
   const [error, setError] = useState<string | null>(null);
   const [inlineFeedback, setInlineFeedback] = useState<string | null>(feedback ?? null);
   const [loadingGoalId, setLoadingGoalId] = useState<string | null>(null);
+  const [lagFilter, setLagFilter] = useState<ProjectionStatus | "all">("all");
 
   useEffect(() => {
     if (!snapshot) {
@@ -152,7 +153,9 @@ export function TrackerSpotlight({
   }, [gatewayBaseUrl, selectedGoalId, snapshot]);
 
   const activeSnapshot = localSnapshot ?? EMPTY_TRACKER_SNAPSHOT;
-  const model = buildTrackerPanelModel(activeSnapshot);
+  const model = buildTrackerPanelModel(activeSnapshot, {
+    lagFilter
+  });
   const moduleStatus = module?.status ?? "unknown";
   const statusStyle =
     STATUS_STYLES[moduleStatus as keyof typeof STATUS_STYLES] ?? STATUS_STYLES.unknown;
@@ -186,239 +189,201 @@ export function TrackerSpotlight({
   }
 
   return (
-    <article className="panel">
-      <header className="panel-header">
+    <article className="panel module-page">
+      <header className="panel-header module-page__header">
+        <div>
+          <p className="section-kicker">Tracking</p>
+          <h2>Tracking</h2>
+          <p>
+            Read-only progress views should help you decide what to do next, not
+            force you back into the planner to interpret every number.
+          </p>
+        </div>
         <div
+          className="module-page__status"
           style={{
-            display: "flex",
-            gap: "1rem",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            flexWrap: "wrap"
+            borderColor: statusStyle.borderColor,
+            background: statusStyle.background,
+            color: statusStyle.color
           }}
         >
-          <div style={{ maxWidth: "42rem" }}>
-            <h2>Tracker module</h2>
-            <p>
-              Projection-based views, lag visibility, and selected goal rollups stay
-              read-only and tracker-owned.
-            </p>
-          </div>
-          <div
-            style={{
-              border: `1px solid ${statusStyle.borderColor}`,
-              background: statusStyle.background,
-              color: statusStyle.color,
-              borderRadius: "999px",
-              padding: "0.4rem 0.85rem",
-              fontSize: "0.9rem",
-              fontWeight: 600
-            }}
-          >
-            Status: {moduleStatus}
-          </div>
+          Status: {moduleStatus}
         </div>
       </header>
 
-      <div style={{ display: "grid", gap: "1rem" }}>
-        {loading ? <p className="callout">Loading tracker projections from the gateway.</p> : null}
-        {error ? <p className="callout callout--error">{error}</p> : null}
-        {inlineFeedback ? <p className="callout">{inlineFeedback}</p> : null}
+      <div className="module-page__grid module-page__grid--balanced">
+        <section className="module-page__content">
+          {loading ? <p className="callout">Loading tracker projections from the gateway.</p> : null}
+          {error ? <p className="callout callout--error">{error}</p> : null}
+          {inlineFeedback ? <p className="callout">{inlineFeedback}</p> : null}
 
-        <section
-          style={{
-            display: "grid",
-            gap: "1rem",
-            gridTemplateColumns: "repeat(auto-fit, minmax(12rem, 1fr))"
-          }}
-        >
-          <article
-            style={{
-              border: "1px solid #e7e5e4",
-              borderRadius: "1rem",
-              padding: "1rem",
-              background: "#fafaf9"
-            }}
-          >
-            <strong>Workspace overview</strong>
-            <p style={{ margin: "0.5rem 0 0", color: "#57534e" }}>
-              {model.overviewMetrics.activeGoalCountLabel} active goals
-            </p>
-            <p style={{ margin: "0.35rem 0 0", color: "#44403c" }}>
-              {model.overviewMetrics.completionPercentLabel} complete across tracked plan
-              items
-            </p>
-            <p style={{ margin: "0.35rem 0 0", color: "#44403c" }}>
-              {model.overviewMetrics.overdueGoalCountLabel} overdue goal
-              {model.overviewMetrics.overdueGoalCountLabel === "1" ? "" : "s"}
-            </p>
-          </article>
-
-          <article
-            style={{
-              border: `1px solid ${lagStyle.borderColor}`,
-              borderRadius: "1rem",
-              padding: "1rem",
-              background: lagStyle.background,
-              color: lagStyle.color
-            }}
-          >
-            <strong>Projection lag</strong>
-            <p style={{ margin: "0.5rem 0 0" }}>Max lag: {model.lagMetrics.maxLagLabel}</p>
-            <p style={{ margin: "0.35rem 0 0" }}>{model.lagMetrics.summaryLabel}</p>
-          </article>
-        </section>
-
-        <section style={{ display: "grid", gap: "0.85rem" }}>
           <div>
-            <strong>Goal projections</strong>
-            <p style={{ margin: "0.35rem 0 0", color: "#57534e" }}>
-              Select a tracked goal to inspect its projection health and workspace context.
+            <strong>Workspace overview</strong>
+            <p className="module-note">
+              The tracker keeps this read-only snapshot separate from planning edits.
             </p>
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(14rem, 1fr))",
-              gap: "0.75rem"
-            }}
-          >
-            {model.goalCards.length === 0 ? (
-              <article
-                style={{
-                  border: "1px dashed #d6d3d1",
-                  borderRadius: "1rem",
-                  padding: "1rem",
-                  background: "#fafaf9"
-                }}
-              >
-                <strong>No tracker projections yet.</strong>
-                <p style={{ margin: "0.5rem 0 0", color: "#57534e" }}>
-                  This module will light up once planner events are flowing.
-                </p>
-              </article>
-            ) : (
-              model.goalCards.map((goalCard) => {
-                const goalLagStyle =
-                  LAG_STYLES[goalCard.statusTone as keyof typeof LAG_STYLES] ?? LAG_STYLES.none;
+          <div className="stats-grid">
+            <article className="stats-card">
+              <strong>{model.overviewMetrics.activeGoalCountLabel}</strong>
+              <span>Active goals</span>
+            </article>
+            <article className="stats-card">
+              <strong>{model.overviewMetrics.completionPercentLabel}</strong>
+              <span>Workspace completion</span>
+            </article>
+            <article className="stats-card">
+              <strong>{model.overviewMetrics.overdueGoalCountLabel}</strong>
+              <span>Overdue goals</span>
+            </article>
+          </div>
 
-                return (
-                  <button
-                    key={goalCard.goalId}
-                    type="button"
-                    onClick={() => void selectGoal(goalCard.goalId)}
-                    style={{
-                      textAlign: "left",
-                      border: goalCard.isSelected
-                        ? `1px solid ${goalLagStyle.borderColor}`
-                        : "1px solid #d6d3d1",
-                      background: goalCard.isSelected ? goalLagStyle.background : "#ffffff",
-                      borderRadius: "1rem",
-                      padding: "0.95rem",
-                      cursor: "pointer",
-                      display: "grid",
-                      gap: "0.4rem"
-                    }}
-                  >
-                    <strong>{goalCard.title}</strong>
-                    <span style={{ color: "#57534e", fontSize: "0.92rem" }}>
-                      {goalCard.status} • {goalCard.completionPercentLabel}
-                    </span>
-                    <span style={{ color: "#44403c", fontSize: "0.88rem" }}>
-                      {goalCard.progressLabel}
-                    </span>
-                    <span style={{ color: goalLagStyle.color, fontSize: "0.88rem" }}>
-                      {goalCard.hiddenSkillLabel}
-                    </span>
-                    {loadingGoalId === goalCard.goalId ? (
-                      <span style={{ color: "#1d4ed8", fontSize: "0.88rem" }}>
-                        Refreshing projection...
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })
+          <div className="module-card module-card--stacked">
+            <div>
+              <strong>Projection lag</strong>
+              <p>Keep an eye on staleness before trusting any progress view.</p>
+            </div>
+
+            <article
+              className="module-inline-card"
+              style={{
+                borderColor: lagStyle.borderColor,
+                background: lagStyle.background,
+                color: lagStyle.color
+              }}
+            >
+              <strong>Max lag: {model.lagMetrics.maxLagLabel}</strong>
+              <span>{model.lagMetrics.summaryLabel}</span>
+            </article>
+
+            <div className="toolbar-cluster toolbar-cluster--compact">
+              {(["all", "stale", "current"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={lagFilter === option ? "toolbar-button toolbar-button--active" : "toolbar-button"}
+                  onClick={() => setLagFilter(option)}
+                >
+                  {option === "all"
+                    ? "All projections"
+                    : option === "stale"
+                      ? "Stale only"
+                      : "Current only"}
+                </button>
+              ))}
+            </div>
+
+            <div className="module-list">
+              {model.lagEntries.map((entry) => (
+                <article key={entry.projectionName} className="module-list__item">
+                  <strong>{entry.projectionName}</strong>
+                  <p>{entry.status}</p>
+                  <span>{entry.lagLabel}</span>
+                </article>
+              ))}
+
+              {model.lagEntries.length === 0 ? (
+                <div className="module-empty">
+                  <strong>No lag entries in this filter.</strong>
+                  <p>Switch filters to inspect the full tracker state.</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </section>
+
+        <section className="module-page__content">
+          <div className="module-card module-card--stacked">
+            <div>
+              <strong>Goal focus</strong>
+              <p>Select a goal to inspect its tracker-owned projection details.</p>
+            </div>
+
+            <div className="module-list">
+              {model.goalCards.length === 0 ? (
+                <div className="module-empty">
+                  <strong>No tracker projections yet.</strong>
+                  <p>This page will light up once planner events are flowing.</p>
+                </div>
+              ) : (
+                model.goalCards.map((goalCard) => {
+                  const goalLagStyle =
+                    LAG_STYLES[goalCard.statusTone as keyof typeof LAG_STYLES] ?? LAG_STYLES.none;
+
+                  return (
+                    <button
+                      key={goalCard.goalId}
+                      type="button"
+                      onClick={() => void selectGoal(goalCard.goalId)}
+                      className={`module-list__item module-list__item--button${
+                        goalCard.isSelected ? " module-list__item--selected" : ""
+                      }`}
+                      style={{
+                        borderColor: goalCard.isSelected
+                          ? goalLagStyle.borderColor
+                          : undefined,
+                        background: goalCard.isSelected
+                          ? goalLagStyle.background
+                          : undefined
+                      }}
+                    >
+                      <strong>{goalCard.title}</strong>
+                      <p>
+                        {goalCard.status} • {goalCard.completionPercentLabel}
+                      </p>
+                      <span>{goalCard.progressLabel}</span>
+                      <span>{goalCard.hiddenSkillLabel}</span>
+                      {loadingGoalId === goalCard.goalId ? (
+                        <span>Refreshing projection…</span>
+                      ) : null}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="module-card module-card--stacked">
+            <div>
+              <strong>Selected goal projection</strong>
+              <p>Use this as the main decision view for the currently selected goal.</p>
+            </div>
+
+            {model.selectedGoal ? (
+              <>
+                <article className="module-inline-card">
+                  <strong>{model.selectedGoal.title}</strong>
+                  <span>
+                    {model.selectedGoal.status} • {model.selectedGoal.completionPercentLabel}
+                  </span>
+                </article>
+
+                <div className="stats-grid">
+                  <article className="stats-card">
+                    <strong>{model.selectedGoal.taskProgressLabel}</strong>
+                    <span>Tasks</span>
+                  </article>
+                  <article className="stats-card">
+                    <strong>{model.selectedGoal.milestoneProgressLabel}</strong>
+                    <span>Milestones</span>
+                  </article>
+                  <article className="stats-card">
+                    <strong>{model.selectedGoal.hiddenSkillLabel}</strong>
+                    <span>Hidden skill links</span>
+                  </article>
+                </div>
+
+                <p className="module-note">{model.selectedGoal.lagLabel}</p>
+                <p className="module-note">{model.selectedGoal.workspaceContextLabel}</p>
+              </>
+            ) : (
+              <div className="module-empty">
+                <strong>Choose a goal projection.</strong>
+                <p>The detailed progress view will appear here.</p>
+              </div>
             )}
           </div>
-        </section>
-
-        <section
-          style={{
-            border: "1px solid #e7e5e4",
-            borderRadius: "1rem",
-            padding: "1rem",
-            background: "#fafaf9",
-            display: "grid",
-            gap: "0.75rem"
-          }}
-        >
-          <strong>Selected goal projection</strong>
-          {model.selectedGoal ? (
-            <>
-              <div>
-                <strong>{model.selectedGoal.title}</strong>
-                <p style={{ margin: "0.35rem 0 0", color: "#57534e" }}>
-                  {model.selectedGoal.status} • {model.selectedGoal.completionPercentLabel}
-                </p>
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(12rem, 1fr))",
-                  gap: "0.75rem"
-                }}
-              >
-                <article
-                  style={{
-                    border: "1px solid #d6d3d1",
-                    borderRadius: "0.85rem",
-                    padding: "0.85rem",
-                    background: "#ffffff"
-                  }}
-                >
-                  <strong>Task progress</strong>
-                  <p style={{ margin: "0.4rem 0 0", color: "#44403c" }}>
-                    {model.selectedGoal.taskProgressLabel}
-                  </p>
-                </article>
-                <article
-                  style={{
-                    border: "1px solid #d6d3d1",
-                    borderRadius: "0.85rem",
-                    padding: "0.85rem",
-                    background: "#ffffff"
-                  }}
-                >
-                  <strong>Milestones</strong>
-                  <p style={{ margin: "0.4rem 0 0", color: "#44403c" }}>
-                    {model.selectedGoal.milestoneProgressLabel}
-                  </p>
-                </article>
-                <article
-                  style={{
-                    border: "1px solid #d6d3d1",
-                    borderRadius: "0.85rem",
-                    padding: "0.85rem",
-                    background: "#ffffff"
-                  }}
-                >
-                  <strong>Hidden skill links</strong>
-                  <p style={{ margin: "0.4rem 0 0", color: "#44403c" }}>
-                    {model.selectedGoal.hiddenSkillLabel}
-                  </p>
-                </article>
-              </div>
-              <p style={{ margin: 0, color: "#44403c" }}>{model.selectedGoal.lagLabel}</p>
-              <p style={{ margin: 0, color: "#57534e" }}>
-                {model.selectedGoal.workspaceContextLabel}
-              </p>
-            </>
-          ) : (
-            <p style={{ margin: 0, color: "#57534e" }}>
-              Choose a goal projection to inspect the current tracker snapshot.
-            </p>
-          )}
         </section>
       </div>
     </article>

@@ -84,6 +84,12 @@ export interface TrackerLagMetricsModel {
   readonly summaryLabel: string;
 }
 
+export interface TrackerLagEntryModel {
+  readonly projectionName: string;
+  readonly status: ProjectionStatus;
+  readonly lagLabel: string;
+}
+
 export interface TrackerSelectedGoalModel {
   readonly title: string;
   readonly status: GoalProgressProjection["status"];
@@ -98,6 +104,7 @@ export interface TrackerSelectedGoalModel {
 export interface TrackerPanelModel {
   readonly overviewMetrics: TrackerOverviewMetricsModel;
   readonly lagMetrics: TrackerLagMetricsModel;
+  readonly lagEntries: readonly TrackerLagEntryModel[];
   readonly goalCards: readonly TrackerGoalCardModel[];
   readonly selectedGoal: TrackerSelectedGoalModel | null;
 }
@@ -156,7 +163,12 @@ function compareGoalCards(
   return left.title.localeCompare(right.title);
 }
 
-export function buildTrackerPanelModel(snapshot: TrackerSnapshot): TrackerPanelModel {
+export function buildTrackerPanelModel(
+  snapshot: TrackerSnapshot,
+  options: {
+    readonly lagFilter?: ProjectionStatus | "all";
+  } = {}
+): TrackerPanelModel {
   const selectedGoalId =
     snapshot.selectedGoalId ??
     snapshot.selectedGoalProjection?.goal.goalId ??
@@ -221,6 +233,14 @@ export function buildTrackerPanelModel(snapshot: TrackerSnapshot): TrackerPanelM
               ? `${staleCount} projection${staleCount === 1 ? "" : "s"} stale`
               : "All visible projections are current."
         };
+  const lagFilter = options.lagFilter ?? "all";
+  const lagEntries = snapshot.lag
+    .filter((entry) => lagFilter === "all" || entry.status === lagFilter)
+    .map((entry) => ({
+      projectionName: entry.projectionName,
+      status: entry.status,
+      lagLabel: formatLagSeconds(entry.lagSeconds)
+    })) satisfies TrackerLagEntryModel[];
 
   const selectedGoal = snapshot.selectedGoalProjection
     ? {
@@ -251,6 +271,7 @@ export function buildTrackerPanelModel(snapshot: TrackerSnapshot): TrackerPanelM
   return {
     overviewMetrics,
     lagMetrics,
+    lagEntries,
     goalCards,
     selectedGoal
   };

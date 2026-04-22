@@ -46,6 +46,25 @@ export interface CreateBrainstormNodeResponse {
   readonly node?: BrainstormNode;
 }
 
+export interface UpdateBrainstormNodeInput {
+  readonly canvasId: BrainstormCanvas["id"];
+  readonly nodeId: BrainstormNode["id"];
+  readonly label?: string;
+  readonly category?: BrainstormNodeCategory;
+  readonly position?: BrainstormPosition;
+  readonly parentNodeId?: BrainstormNode["parentNodeId"] | null;
+  readonly description?: string | null;
+}
+
+export interface DeleteBrainstormNodeInput {
+  readonly canvasId: BrainstormCanvas["id"];
+  readonly nodeId: BrainstormNode["id"];
+}
+
+export interface DeleteBrainstormNodeResponse {
+  readonly deletedNodeId: BrainstormNode["id"];
+}
+
 export interface BrainstormGatewayPort {
   listCanvases(): Promise<BrainstormCanvasesResponse>;
   getCanvasGraph(canvasId: BrainstormCanvas["id"]): Promise<BrainstormCanvasGraph>;
@@ -55,6 +74,12 @@ export interface BrainstormGatewayPort {
   createNode(
     input: CreateBrainstormNodeInput
   ): Promise<CreateBrainstormNodeResponse>;
+  updateNode(
+    input: UpdateBrainstormNodeInput
+  ): Promise<CreateBrainstormNodeResponse>;
+  deleteNode(
+    input: DeleteBrainstormNodeInput
+  ): Promise<DeleteBrainstormNodeResponse>;
 }
 
 function createFetchRequest(baseUrl: string, fetcher: typeof fetch) {
@@ -125,6 +150,38 @@ export function createBrainstormGatewayPort(
             ...(input.description ? { description: input.description } : {}),
             ...(input.metadata ? { metadata: input.metadata } : {})
           })
+        }
+      );
+    },
+
+    updateNode(input) {
+      return request<CreateBrainstormNodeResponse>(
+        `/api/v1/canvases/${input.canvasId}/nodes/${input.nodeId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            ...(input.label === undefined ? {} : { label: input.label }),
+            ...(input.category === undefined ? {} : { category: input.category }),
+            ...(input.parentNodeId === undefined
+              ? {}
+              : { parentNodeId: input.parentNodeId }),
+            ...(input.position === undefined ? {} : { position: input.position }),
+            ...(input.description === undefined
+              ? {}
+              : { description: input.description })
+          })
+        }
+      );
+    },
+
+    deleteNode(input) {
+      return request<DeleteBrainstormNodeResponse>(
+        `/api/v1/canvases/${input.canvasId}/nodes/${input.nodeId}`,
+        {
+          method: "DELETE"
         }
       );
     }
