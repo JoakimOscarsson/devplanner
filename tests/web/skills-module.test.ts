@@ -21,7 +21,6 @@ import {
   resolveSkillTreeBulkDeleteSummary,
   shouldCloseSkillEditorFromPointerInteraction,
   resolveSkillTreeDropIndicatorFromPointer,
-  resolveSkillTreeSelectionFromPointer,
   SkillsSpotlight
 } from "../../apps/web/src/modules/skills/SkillsSpotlight";
 
@@ -425,32 +424,6 @@ describe("skills module", () => {
         endedOnBackdrop: false
       })
     ).toBe(false);
-  });
-
-  it("promotes pointer hover into the active selection when single-select is active", () => {
-    expect(
-      resolveSkillTreeSelectionFromPointer({
-        nodeId: "nod_skill_frontend",
-        multiSelectEnabled: false,
-        draggedNodeId: null
-      })
-    ).toBe("nod_skill_frontend");
-
-    expect(
-      resolveSkillTreeSelectionFromPointer({
-        nodeId: "nod_skill_frontend",
-        multiSelectEnabled: true,
-        draggedNodeId: null
-      })
-    ).toBeNull();
-
-    expect(
-      resolveSkillTreeSelectionFromPointer({
-        nodeId: "nod_skill_frontend",
-        multiSelectEnabled: false,
-        draggedNodeId: "nod_skill_typescript"
-      })
-    ).toBeNull();
   });
 
   it("only snaps drag placement to row tops and the bottom of the visible list", () => {

@@ -12,8 +12,11 @@ import { gatewayUrl } from "../../lib/gateway";
 import {
   createSkillsGatewayPort,
   loadSkillsSnapshot,
-  type SkillsSnapshot
+  type SkillsSnapshot,
+  type DuplicateSkillCandidate,
+  type PromotionCandidate
 } from "./skills-gateway";
+import { GatewayRequestError } from "@pdp-helper/runtime-web";
 import {
   buildSkillsPanelModel,
   EMPTY_SKILLS_SNAPSHOT,
@@ -24,7 +27,8 @@ import {
   parseTagList,
   resolveVisibleDropIndicator,
   type SkillTreeFilterState,
-  type SkillTreeNodeModel
+  type SkillTreeNodeModel,
+  type VisibleSkillTreeRowModel
 } from "./skills-model";
 
 export interface SkillsSpotlightProps {
@@ -66,11 +70,18 @@ interface DropIndicatorState {
 
 type ActiveInteractionMode = "keyboard" | "pointer" | null;
 
-type SkillTreeSelectionInput = {
-  readonly nodeId: string;
-  readonly multiSelectEnabled: boolean;
-  readonly draggedNodeId: string | null;
-};
+interface ToastEntry {
+  readonly id: string;
+  readonly message: string;
+  readonly tone: "info" | "error";
+}
+
+interface DuplicateResolutionState {
+  readonly label: string;
+  readonly guidance: string;
+  readonly candidates: readonly DuplicateSkillCandidate[];
+  readonly sourceNodeId?: string;
+}
 
 type SkillTreeBulkDeleteSummary = {
   readonly topLevelCount: number;
@@ -123,14 +134,6 @@ export function shouldCloseSkillEditorFromPointerInteraction(input: {
   readonly endedOnBackdrop: boolean;
 }) {
   return input.startedOnBackdrop && input.endedOnBackdrop;
-}
-
-export function resolveSkillTreeSelectionFromPointer(input: SkillTreeSelectionInput) {
-  if (input.multiSelectEnabled || input.draggedNodeId) {
-    return null;
-  }
-
-  return input.nodeId;
 }
 
 export function resolveSkillTreeDropIndicatorFromPointer(input: {
@@ -209,6 +212,25 @@ function findTreeNodeById(
   return null;
 }
 
+function findTreeNodeBySkillId(
+  nodes: readonly SkillTreeNodeModel[],
+  skillId: string
+): SkillTreeNodeModel | null {
+  for (const node of nodes) {
+    if (node.skillId === skillId) {
+      return node;
+    }
+
+    const nestedMatch = findTreeNodeBySkillId(node.children, skillId);
+
+    if (nestedMatch) {
+      return nestedMatch;
+    }
+  }
+
+  return null;
+}
+
 function findSiblingIds(
   nodes: readonly SkillTreeNodeModel[],
   parentId?: string
@@ -258,6 +280,39 @@ function collectBulkTargetIds(
   return [...ids];
 }
 
+function buildToastEntry(message: string, tone: ToastEntry["tone"] = "info"): ToastEntry {
+  return {
+    id: crypto.randomUUID(),
+    message,
+    tone
+  };
+}
+
+function countVisibleRootSkills(rows: readonly VisibleSkillTreeRowModel[]) {
+  return rows.filter((row) => row.depth === 0).length;
+}
+
+function readDuplicateSkillCandidates(value: unknown): readonly DuplicateSkillCandidate[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((candidate): candidate is DuplicateSkillCandidate => {
+    if (!candidate || typeof candidate !== "object") {
+      return false;
+    }
+
+    return (
+      typeof candidate.skillId === "string" &&
+      typeof candidate.canonicalLabel === "string" &&
+      typeof candidate.normalizedLabel === "string" &&
+      typeof candidate.similarityScore === "number" &&
+      typeof candidate.referenceCount === "number" &&
+      (candidate.matchKind === "exact" || candidate.matchKind === "related")
+    );
+  });
+}
+
 function collectTopLevelSelectedIds(
   treeRoots: readonly SkillTreeNodeModel[],
   selectedNodeIds: ReadonlySet<string>
@@ -281,7 +336,7 @@ function collectTopLevelSelectedIds(
   return topLevelIds;
 }
 
-function createIconPath(kind: "add" | "edit" | "delete") {
+function createIconPath(kind: "add" | "edit" | "delete" | "sibling") {
   switch (kind) {
     case "add":
       return (
@@ -305,6 +360,17 @@ function createIconPath(kind: "add" | "edit" | "delete") {
           strokeWidth="1.2"
         />
       );
+    case "sibling":
+      return (
+        <path
+          d="M3 2.5v7M3 6h3.2M7 4v4M5 6h4"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.2"
+        />
+      );
     case "delete":
       return (
         <path
@@ -319,7 +385,11 @@ function createIconPath(kind: "add" | "edit" | "delete") {
   }
 }
 
-function SkillActionIcon({ kind }: { readonly kind: "add" | "edit" | "delete" }) {
+function SkillActionIcon({
+  kind
+}: {
+  readonly kind: "add" | "edit" | "delete" | "sibling";
+}) {
   return (
     <svg
       aria-hidden="true"
@@ -356,6 +426,9 @@ function SkillEditorModal({
   inheritParentColor,
   parentTag,
   parentColor,
+  duplicateResolution,
+  onSelectDuplicateCandidate,
+  onDismissDuplicateResolution,
   onDraftChange,
   onApplyToChildrenChange,
   onInheritParentTagChange,
@@ -372,6 +445,9 @@ function SkillEditorModal({
   readonly inheritParentColor?: boolean;
   readonly parentTag?: string;
   readonly parentColor?: string;
+  readonly duplicateResolution?: DuplicateResolutionState | null;
+  readonly onSelectDuplicateCandidate?: (candidate: DuplicateSkillCandidate) => void;
+  readonly onDismissDuplicateResolution?: () => void;
   readonly onDraftChange: (draft: SkillEditorDraft) => void;
   readonly onApplyToChildrenChange?: (checked: boolean) => void;
   readonly onInheritParentTagChange?: (checked: boolean) => void;
@@ -395,6 +471,51 @@ function SkillEditorModal({
     );
     firstFocusable?.focus();
   }, []);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const focusable = formRef.current?.querySelectorAll<HTMLElement>(
+        'input:not([disabled]), textarea:not([disabled]), button:not([disabled])'
+      );
+
+      if (!focusable || focusable.length === 0) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (!first || !last) {
+        return;
+      }
+
+      const activeElement = document.activeElement as HTMLElement | null;
+
+      if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onCancel]);
 
   return (
     <div
@@ -424,6 +545,9 @@ function SkillEditorModal({
       <form
         ref={formRef}
         className="skill-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="skill-editor-title"
         onClick={(event) => event.stopPropagation()}
         onSubmit={(event) => {
           event.preventDefault();
@@ -431,7 +555,7 @@ function SkillEditorModal({
         }}
       >
         <div className="skill-modal__header">
-          <h2>
+          <h2 id="skill-editor-title">
             {isBulkEdit ? "Bulk Edit Skills" : state.mode === "edit" ? "Edit Skill" : "Add Skill"}
           </h2>
           {isBulkEdit ? (
@@ -476,7 +600,7 @@ function SkillEditorModal({
         </label>
 
         <label className="skill-modal__field">
-          <span>Tag</span>
+          <span>Tags</span>
           <input
             value={isCreateChild && inheritParentTag ? parentTag ?? "" : draft.tag}
             placeholder={
@@ -493,6 +617,7 @@ function SkillEditorModal({
               })
             }
           />
+          <small className="skill-modal__helper">Separate multiple tags with comma or semicolon.</small>
         </label>
 
         {isCreateChild ? (
@@ -561,6 +686,39 @@ function SkillEditorModal({
           </label>
         ) : null}
 
+        {duplicateResolution ? (
+          <section className="skill-modal__duplicate">
+            <div className="skill-modal__duplicate-header">
+              <strong>Duplicate skill detected</strong>
+              <button
+                type="button"
+                className="skill-modal__dismiss"
+                onClick={onDismissDuplicateResolution}
+              >
+                Dismiss
+              </button>
+            </div>
+            <p>{duplicateResolution.guidance}</p>
+            <div className="skill-modal__duplicate-list">
+              {duplicateResolution.candidates.map((candidate) => (
+                <div key={candidate.skillId} className="skill-modal__duplicate-item">
+                  <div>
+                    <strong>{candidate.canonicalLabel}</strong>
+                    <p>{candidate.matchKind} match • {candidate.referenceCount} references</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="skill-modal__secondary"
+                    onClick={() => onSelectDuplicateCandidate?.(candidate)}
+                  >
+                    Select Existing
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         <div className="skill-modal__actions">
           <button
             type="button"
@@ -603,7 +761,9 @@ export function SkillsSpotlight({
   );
   const [loading, setLoading] = useState(snapshot ? false : true);
   const [error, setError] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(feedback ?? null);
+  const [toastEntries, setToastEntries] = useState<readonly ToastEntry[]>(
+    feedback ? [buildToastEntry(feedback)] : []
+  );
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<ReadonlySet<string>>(new Set());
@@ -623,6 +783,9 @@ export function SkillsSpotlight({
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<DropIndicatorState | null>(null);
   const [bulkApplyToChildren, setBulkApplyToChildren] = useState(false);
+  const [duplicateResolution, setDuplicateResolution] =
+    useState<DuplicateResolutionState | null>(null);
+  const [promotionPanelOpen, setPromotionPanelOpen] = useState(false);
   const [childCreateDefaults, setChildCreateDefaults] = useState<ChildCreateDefaults>(() => ({
     inheritParentTag: readStoredBoolean("pdp-helper.skills.inherit-parent-tag", false),
     inheritParentColor: readStoredBoolean("pdp-helper.skills.inherit-parent-color", false)
@@ -633,6 +796,10 @@ export function SkillsSpotlight({
   const filterPanelRef = useRef<HTMLDivElement | null>(null);
   const didInitializeExpansion = useRef(false);
   const didAutoFocusTreeSurface = useRef(false);
+
+  function pushToast(message: string, tone: ToastEntry["tone"] = "info") {
+    setToastEntries((current) => [...current, buildToastEntry(message, tone)]);
+  }
 
   async function refreshSnapshot(note?: string, preferredSelectedNodeId?: string | null) {
     if (snapshot) {
@@ -646,7 +813,9 @@ export function SkillsSpotlight({
 
       startTransition(() => {
         setLocalSnapshot(nextSnapshot);
-        setToastMessage(note ?? null);
+        if (note) {
+          setToastEntries((current) => [...current, buildToastEntry(note)]);
+        }
         if (preferredSelectedNodeId) {
           setSelectedNodeId(preferredSelectedNodeId);
         }
@@ -670,22 +839,28 @@ export function SkillsSpotlight({
   }, [snapshot]);
 
   useEffect(() => {
-    setToastMessage(feedback ?? null);
-  }, [feedback]);
-
-  useEffect(() => {
-    if (!toastMessage) {
+    if (!feedback) {
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
-      setToastMessage(null);
-    }, 2400);
+    pushToast(feedback);
+  }, [feedback]);
+
+  useEffect(() => {
+    if (toastEntries.length === 0) {
+      return;
+    }
+
+    const timeoutIds = toastEntries.map((entry, index) =>
+      window.setTimeout(() => {
+        setToastEntries((current) => current.filter((item) => item.id !== entry.id));
+      }, 2600 + index * 160)
+    );
 
     return () => {
-      window.clearTimeout(timeoutId);
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
     };
-  }, [toastMessage]);
+  }, [toastEntries]);
 
   useEffect(() => {
     if (snapshot) {
@@ -711,14 +886,25 @@ export function SkillsSpotlight({
     [dropIndicator, visibleRows]
   );
   const lastVisibleRowId = visibleRows[visibleRows.length - 1]?.id ?? null;
-  const activeRowId = selectedNodeId ?? hoveredNodeId;
-  const selectedRow = visibleRows.find((row) => row.id === activeRowId) ?? null;
+  const keyboardAnchorRowId = selectedNodeId ?? hoveredNodeId;
+  const selectedRow = visibleRows.find((row) => row.id === keyboardAnchorRowId) ?? null;
   const bulkSelectionCount = selectedNodeIds.size;
   const bulkSelectionActive = multiSelectEnabled && bulkSelectionCount > 1;
   const hasActiveFilters =
     (activeFilters.tags?.length ?? 0) > 0 || (activeFilters.colors?.length ?? 0) > 0;
   const reorderEnabled =
     searchQuery.trim().length === 0 && !hasActiveFilters && !multiSelectEnabled;
+  const activeFilterCount =
+    (activeFilters.tags?.length ?? 0) + (activeFilters.colors?.length ?? 0);
+  const visibleRootCount = countVisibleRootSkills(visibleRows);
+  const visibleSkillCount = visibleRows.filter((row) => row.node.kind === "skill").length;
+  const emptyStateKind =
+    model.treeRoots.length === 0
+      ? "empty-tree"
+      : visibleRows.length === 0
+        ? "filtered-empty"
+        : null;
+  const promotionCandidates = activeSnapshot.promotionCandidates ?? [];
   const activeParentNode =
     editorState?.parentNodeId
       ? findTreeNodeById(model.treeRoots, editorState.parentNodeId)
@@ -867,6 +1053,7 @@ export function SkillsSpotlight({
   }
 
   function openCreateRoot() {
+    setDuplicateResolution(null);
     setEditorState({
       mode: "create-root"
     });
@@ -879,6 +1066,7 @@ export function SkillsSpotlight({
       return;
     }
 
+    setDuplicateResolution(null);
     setExpandedIds((current) => new Set(current).add(node.id));
     setEditorState({
       mode: "create-child",
@@ -893,6 +1081,7 @@ export function SkillsSpotlight({
   }
 
   function openCreateSibling(node: SkillTreeNodeModel) {
+    setDuplicateResolution(null);
     setEditorState({
       mode: "create-sibling",
       parentNodeId: node.parentId
@@ -902,6 +1091,7 @@ export function SkillsSpotlight({
   }
 
   function openEdit(node: SkillTreeNodeModel) {
+    setDuplicateResolution(null);
     setEditorState({
       mode: "edit",
       nodeId: node.id
@@ -915,6 +1105,7 @@ export function SkillsSpotlight({
       return;
     }
 
+    setDuplicateResolution(null);
     setEditorState({
       mode: "bulk-edit",
       selectedNodeIds: [...selectedNodeIds]
@@ -966,12 +1157,127 @@ export function SkillsSpotlight({
     });
   }
 
+  function updateEditorDraft(nextDraft: SkillEditorDraft) {
+    setEditorDraft(nextDraft);
+
+    if (duplicateResolution) {
+      setDuplicateResolution(null);
+    }
+  }
+
+  function clearSearch() {
+    setSearchQuery("");
+  }
+
+  async function focusExistingSkill(skillId: string) {
+    const existingNode = findTreeNodeBySkillId(model.treeRoots, skillId);
+
+    if (!existingNode) {
+      await refreshSnapshot();
+    }
+
+    const nextNode = existingNode ?? findTreeNodeBySkillId(model.treeRoots, skillId);
+
+    if (!nextNode) {
+      return;
+    }
+
+    const lineage: string[] = [];
+    let parentId = nextNode.parentId;
+
+    while (parentId) {
+      lineage.push(parentId);
+      parentId = findTreeNodeById(model.treeRoots, parentId)?.parentId;
+    }
+
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      lineage.forEach((id) => next.add(id));
+      return next;
+    });
+    setSelectedNodeId(nextNode.id);
+    setHoveredNodeId(nextNode.id);
+    setActiveInteractionMode("keyboard");
+    focusTreeSurface(treeSurfaceRef.current);
+  }
+
+  async function handlePromotion(candidate: PromotionCandidate) {
+    setPendingMutation(true);
+    setError(null);
+
+    try {
+      await gateway.promote({
+        nodeId: candidate.nodeId as GraphNode["id"]
+      });
+      await refreshSnapshot(`Promoted "${candidate.label}" into the skill tree.`);
+    } catch (requestError) {
+      if (
+        requestError instanceof GatewayRequestError &&
+        requestError.code === "SKILL_RESOLUTION_REQUIRED"
+      ) {
+        const candidates = readDuplicateSkillCandidates(requestError.details?.candidates);
+
+        setDuplicateResolution({
+          label: candidate.label,
+          guidance: requestError.message,
+          candidates,
+          sourceNodeId: candidate.nodeId
+        });
+        pushToast("Promotion needs duplicate resolution first.", "error");
+      } else {
+        setError(getErrorMessage(requestError));
+      }
+    } finally {
+      setPendingMutation(false);
+    }
+  }
+
+  async function resolvePromotionDuplicate(
+    candidate: DuplicateSkillCandidate,
+    strategy: "use-existing-canonical" | "create-reference-to-existing"
+  ) {
+    if (!duplicateResolution?.sourceNodeId) {
+      await focusExistingSkill(candidate.skillId);
+      setDuplicateResolution(null);
+      return;
+    }
+
+    setPendingMutation(true);
+
+    try {
+      if (strategy === "use-existing-canonical") {
+        await focusExistingSkill(candidate.skillId);
+        pushToast(`Using existing skill "${candidate.canonicalLabel}".`);
+      } else {
+        await gateway.resolveDuplicate({
+          nodeId: duplicateResolution.sourceNodeId as GraphNode["id"],
+          canonicalSkillId: candidate.skillId as never,
+          strategy: "create-reference-to-existing"
+        });
+        await refreshSnapshot(`Created a reference to "${candidate.canonicalLabel}".`);
+      }
+
+      setDuplicateResolution(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setPendingMutation(false);
+    }
+  }
+
   function handleRowSelection(nodeId: string) {
     setSelectedNodeId(nodeId);
     setHoveredNodeId(nodeId);
     setActiveInteractionMode("pointer");
+    focusTreeSurface(treeSurfaceRef.current);
 
     if (!multiSelectEnabled) {
+      return;
+    }
+
+    const node = findTreeNodeById(model.treeRoots, nodeId);
+
+    if (!node || node.kind !== "skill") {
       return;
     }
 
@@ -1065,21 +1371,46 @@ export function SkillsSpotlight({
       }
 
       setEditorState(null);
+      setDuplicateResolution(null);
       setEditorDraft(createEmptyDraft());
       setBulkApplyToChildren(false);
       setError(null);
       focusTreeSurface(treeSurfaceRef.current);
     } catch (requestError) {
-      setError(getErrorMessage(requestError));
+      if (
+        requestError instanceof GatewayRequestError &&
+        requestError.code === "SKILL_RESOLUTION_REQUIRED"
+      ) {
+        const guidance =
+          typeof requestError.message === "string" && requestError.message.trim().length > 0
+            ? requestError.message
+            : "Duplicate skill resolution is required.";
+        const candidates = readDuplicateSkillCandidates(requestError.details?.candidates);
+
+        setDuplicateResolution({
+          label: editorDraft.label,
+          guidance,
+          candidates
+        });
+        setError(null);
+        pushToast("Duplicate skill detected. Choose an existing skill or rename it.", "error");
+      } else {
+        setError(getErrorMessage(requestError));
+      }
     } finally {
       setPendingMutation(false);
     }
   }
 
   async function removeNode(node: SkillTreeNodeModel) {
+    const deleteSummary = resolveSkillTreeBulkDeleteSummary(model.treeRoots, new Set([node.id]));
     const allowDelete =
       typeof window === "undefined" ||
-      window.confirm(`Remove "${node.label}" from the skill tree?`);
+      window.confirm(
+        deleteSummary.totalCount > 1
+          ? `Remove "${node.label}" and ${deleteSummary.totalCount - 1} nested skill${deleteSummary.totalCount === 2 ? "" : "s"} from the skill tree?`
+          : `Remove "${node.label}" from the skill tree?`
+      );
 
     if (!allowDelete) {
       return;
@@ -1178,6 +1509,15 @@ export function SkillsSpotlight({
       return;
     }
 
+    if (multiSelectEnabled && event.key === " ") {
+      event.preventDefault();
+
+      if (selectedRow?.node.kind === "skill") {
+        handleRowSelection(selectedRow.id);
+      }
+      return;
+    }
+
     const action = interpretSkillTreeHotkey({
       key: event.key,
       targetTagName: (event.target as HTMLElement | null)?.tagName,
@@ -1196,14 +1536,12 @@ export function SkillsSpotlight({
       case "select-previous":
         setHoveredNodeId(null);
         setActiveInteractionMode("keyboard");
-        setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
-        setSelectedNodeId(moveSkillTreeSelection(visibleRows, activeRowId, -1));
+        setSelectedNodeId(moveSkillTreeSelection(visibleRows, keyboardAnchorRowId, -1));
         break;
       case "select-next":
         setHoveredNodeId(null);
         setActiveInteractionMode("keyboard");
-        setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
-        setSelectedNodeId(moveSkillTreeSelection(visibleRows, activeRowId, 1));
+        setSelectedNodeId(moveSkillTreeSelection(visibleRows, keyboardAnchorRowId, 1));
         break;
       case "expand":
         setHoveredNodeId(null);
@@ -1277,6 +1615,16 @@ export function SkillsSpotlight({
               placeholder="Search skills..."
               onChange={(event) => setSearchQuery(event.target.value)}
             />
+            {searchQuery.trim().length > 0 ? (
+              <button
+                type="button"
+                className="skill-tree-toolbar__clear-search"
+                onClick={clearSearch}
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            ) : null}
           </label>
 
           <div className="skill-tree-toolbar__actions">
@@ -1297,6 +1645,9 @@ export function SkillsSpotlight({
                 onClick={() => setFilterMenuOpen((current) => !current)}
               >
                 <FilterIcon />
+                {activeFilterCount > 0 ? (
+                  <span className="skill-tree-toolbar__badge">{activeFilterCount}</span>
+                ) : null}
               </button>
 
               {filterMenuOpen ? (
@@ -1315,38 +1666,50 @@ export function SkillsSpotlight({
                   <div className="skill-tree-filter-popover__section">
                     <span>Tags</span>
                     <div className="skill-tree-filter-popover__options">
-                      {model.availableTagFilters.map((tag) => (
-                        <label key={tag} className="skill-tree-filter-popover__option">
-                          <input
-                            type="checkbox"
-                            checked={(activeFilters.tags ?? []).includes(tag)}
-                            onChange={() => toggleFilterValue("tags", tag)}
-                          />
-                          <span>{tag}</span>
-                        </label>
-                      ))}
+                      {model.availableTagFilters.length === 0 ? (
+                        <p className="skill-tree-filter-popover__empty">
+                          No tags available yet.
+                        </p>
+                      ) : (
+                        model.availableTagFilters.map((tag) => (
+                          <label key={tag} className="skill-tree-filter-popover__option">
+                            <input
+                              type="checkbox"
+                              checked={(activeFilters.tags ?? []).includes(tag)}
+                              onChange={() => toggleFilterValue("tags", tag)}
+                            />
+                            <span>{tag}</span>
+                          </label>
+                        ))
+                      )}
                     </div>
                   </div>
 
                   <div className="skill-tree-filter-popover__section">
                     <span>Colors</span>
                     <div className="skill-tree-filter-popover__options">
-                      {model.availableColorFilters.map((color) => (
-                        <label key={color} className="skill-tree-filter-popover__option">
-                          <input
-                            type="checkbox"
-                            checked={(activeFilters.colors ?? []).includes(color)}
-                            onChange={() => toggleFilterValue("colors", color)}
-                          />
-                          <span className="skill-tree-filter-popover__color-label">
-                            <span
-                              className="skill-tree-filter-popover__color-dot"
-                              style={{ background: color }}
+                      {model.availableColorFilters.length === 0 ? (
+                        <p className="skill-tree-filter-popover__empty">
+                          No colors available yet.
+                        </p>
+                      ) : (
+                        model.availableColorFilters.map((color) => (
+                          <label key={color} className="skill-tree-filter-popover__option">
+                            <input
+                              type="checkbox"
+                              checked={(activeFilters.colors ?? []).includes(color)}
+                              onChange={() => toggleFilterValue("colors", color)}
                             />
-                            {formatColorFilterLabel(color)}
-                          </span>
-                        </label>
-                      ))}
+                            <span className="skill-tree-filter-popover__color-label">
+                              <span
+                                className="skill-tree-filter-popover__color-dot"
+                                style={{ background: color }}
+                              />
+                              {formatColorFilterLabel(color)}
+                            </span>
+                          </label>
+                        ))
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1365,6 +1728,32 @@ export function SkillsSpotlight({
             >
               {multiSelectEnabled ? "Done Selecting" : "Multi-select"}
             </button>
+            {multiSelectEnabled ? (
+              <>
+                <button
+                  type="button"
+                  className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                  onClick={() =>
+                    setSelectedNodeIds(
+                      new Set(
+                        visibleRows
+                          .filter((row) => row.node.kind === "skill")
+                          .map((row) => row.id)
+                      )
+                    )
+                  }
+                >
+                  Select Visible
+                </button>
+                <button
+                  type="button"
+                  className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                  onClick={() => setSelectedNodeIds(new Set())}
+                >
+                  Clear Selection
+                </button>
+              </>
+            ) : null}
             {bulkSelectionActive ? (
               <>
                 <button
@@ -1387,24 +1776,119 @@ export function SkillsSpotlight({
             ) : null}
             <button
               type="button"
+              className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+              onClick={() => setExpandedIds(new Set())}
+            >
+              Collapse All
+            </button>
+            <button
+              type="button"
+              className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+              onClick={() =>
+                setExpandedIds(new Set(visibleRows.filter((row) => row.hasChildren).map((row) => row.id)))
+              }
+            >
+              Expand Visible
+            </button>
+            <button
+              type="button"
               className="skill-tree-toolbar__button"
               onClick={openCreateRoot}
             >
-            + Add Root Skill
+              + Add Root Skill
             </button>
           </div>
         </div>
 
         <div className="skill-tree-toolbar__meta">
           <span>
-            {model.treeRoots.length} root {model.treeRoots.length === 1 ? "skill" : "skills"}
+            {visibleRootCount} visible root {visibleRootCount === 1 ? "skill" : "skills"}
           </span>
+          {searchQuery.trim().length > 0 || hasActiveFilters ? (
+            <span>{visibleSkillCount} visible skills</span>
+          ) : null}
           {multiSelectEnabled ? (
             <span>{bulkSelectionCount} selected</span>
           ) : null}
+          {!reorderEnabled ? (
+            <span>Reorder is off while search, filters, or multi-select are active.</span>
+          ) : (
+            <span>Drag by the grip to reorder within a level.</span>
+          )}
         </div>
 
-        {visibleRows.length > 0 ? (
+        {searchQuery.trim().length > 0 || hasActiveFilters ? (
+          <div className="skill-tree-toolbar__chips">
+            {searchQuery.trim().length > 0 ? (
+              <button
+                type="button"
+                className="skill-tree-toolbar__chip"
+                onClick={clearSearch}
+              >
+                Search: {searchQuery} ×
+              </button>
+            ) : null}
+            {(activeFilters.tags ?? []).map((tag) => (
+              <button
+                key={`tag-${tag}`}
+                type="button"
+                className="skill-tree-toolbar__chip"
+                onClick={() => toggleFilterValue("tags", tag)}
+              >
+                Tag: {tag} ×
+              </button>
+            ))}
+            {(activeFilters.colors ?? []).map((color) => (
+              <button
+                key={`color-${color}`}
+                type="button"
+                className="skill-tree-toolbar__chip"
+                onClick={() => toggleFilterValue("colors", color)}
+              >
+                Color: {formatColorFilterLabel(color)} ×
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {promotionCandidates.length > 0 ? (
+          <section className="skill-tree-governance">
+            <div className="skill-tree-governance__header">
+              <strong>Brainstorm candidates</strong>
+              <button
+                type="button"
+                className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                onClick={() => setPromotionPanelOpen((current) => !current)}
+              >
+                {promotionPanelOpen ? "Hide" : `Show ${promotionCandidates.length}`}
+              </button>
+            </div>
+            {promotionPanelOpen ? (
+              <div className="skill-tree-governance__list">
+                {promotionCandidates.slice(0, 8).map((candidate) => (
+                  <div key={candidate.nodeId} className="skill-tree-governance__item">
+                    <div>
+                      <strong>{candidate.label}</strong>
+                      <p>{candidate.canvasName} • {candidate.category}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                      disabled={pendingMutation}
+                      onClick={() => {
+                        void handlePromotion(candidate);
+                      }}
+                    >
+                      Promote
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {emptyStateKind === null ? (
           <ul
             className={
               draggedNodeId
@@ -1413,11 +1897,6 @@ export function SkillsSpotlight({
             }
             onPointerLeave={() => {
               setHoveredNodeId(null);
-
-              if (!multiSelectEnabled && activeInteractionMode === "pointer") {
-                setSelectedNodeId(null);
-                setActiveInteractionMode(null);
-              }
             }}
           >
             {visibleRows.map((row) => {
@@ -1425,7 +1904,7 @@ export function SkillsSpotlight({
               const isSelected =
                 multiSelectEnabled
                   ? selectedNodeIds.has(row.id)
-                  : row.id === activeRowId;
+                  : row.id === selectedNodeId;
               const isExpanded = expandedIds.has(row.id);
               const isDropTarget =
                 visibleDropIndicator?.position === "before" &&
@@ -1456,7 +1935,6 @@ export function SkillsSpotlight({
                       .filter(Boolean)
                       .join(" ")}
                     style={{ paddingLeft: `${18 + row.depth * 28}px` }}
-                    draggable={reorderEnabled}
                     onClick={() => handleRowSelection(row.id)}
                     onPointerEnter={() => {
                       if (draggedNodeId) {
@@ -1465,29 +1943,6 @@ export function SkillsSpotlight({
                       }
 
                       setHoveredNodeId(row.id);
-
-                      const pointerSelectedNodeId = resolveSkillTreeSelectionFromPointer({
-                        nodeId: row.id,
-                        multiSelectEnabled,
-                        draggedNodeId
-                      });
-
-                      if (pointerSelectedNodeId) {
-                        setActiveInteractionMode("pointer");
-                        setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
-                        setSelectedNodeId(pointerSelectedNodeId);
-                      }
-                    }}
-                    onDragStart={() => {
-                      if (!reorderEnabled) {
-                        return;
-                      }
-
-                      setDraggedNodeId(row.id);
-                    }}
-                    onDragEnd={() => {
-                      setDraggedNodeId(null);
-                      setDropIndicator(null);
                     }}
                     onDragOver={(event) => {
                       if (!reorderEnabled) {
@@ -1523,7 +1978,33 @@ export function SkillsSpotlight({
                       );
                     }}
                   >
-                    <span className="skill-tree__drag">⋮⋮</span>
+                    <button
+                      type="button"
+                      className={
+                        reorderEnabled
+                          ? "skill-tree__drag skill-tree__drag--enabled"
+                          : "skill-tree__drag skill-tree__drag--disabled"
+                      }
+                      draggable={reorderEnabled}
+                      aria-label={
+                        reorderEnabled
+                          ? `Reorder ${row.node.label} within this level`
+                          : "Reorder unavailable while searching, filtering, or multi-selecting"
+                      }
+                      onDragStart={() => {
+                        if (!reorderEnabled) {
+                          return;
+                        }
+
+                        setDraggedNodeId(row.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedNodeId(null);
+                        setDropIndicator(null);
+                      }}
+                    >
+                      ⋮⋮
+                    </button>
 
                     <button
                       type="button"
@@ -1563,6 +2044,19 @@ export function SkillsSpotlight({
                     </div>
 
                     <div className="skill-tree__actions">
+                      {row.node.kind === "skill" ? (
+                        <button
+                          type="button"
+                          className="skill-tree__icon-button"
+                          aria-label={`Add sibling to ${row.node.label}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openCreateSibling(row.node);
+                          }}
+                        >
+                          <SkillActionIcon kind="sibling" />
+                        </button>
+                      ) : null}
                       {row.node.kind === "skill" ? (
                         <button
                           type="button"
@@ -1612,10 +2106,26 @@ export function SkillsSpotlight({
           </ul>
         ) : (
           <div className="skill-tree__empty">
-            <p>No skills match the current view yet.</p>
-            <button type="button" onClick={openCreateRoot}>
-              Add Root Skill
-            </button>
+            {emptyStateKind === "empty-tree" ? (
+              <>
+                <p>No skills yet. Start by adding a root skill.</p>
+                <button type="button" onClick={openCreateRoot}>
+                  Add Root Skill
+                </button>
+              </>
+            ) : (
+              <>
+                <p>No skills match the current search or filters.</p>
+                <div className="skill-tree__empty-actions">
+                  <button type="button" onClick={clearSearch}>
+                    Clear Search
+                  </button>
+                  <button type="button" onClick={clearFilters}>
+                    Clear Filters
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -1655,32 +2165,40 @@ export function SkillsSpotlight({
           inheritParentColor={childCreateDefaults.inheritParentColor}
           parentTag={activeParentNode ? formatTagList(activeParentNode.tags) : undefined}
           parentColor={activeParentNode?.color}
-          onDraftChange={setEditorDraft}
+          duplicateResolution={duplicateResolution?.sourceNodeId ? null : duplicateResolution}
+          onSelectDuplicateCandidate={(candidate) => {
+            void focusExistingSkill(candidate.skillId);
+            setDuplicateResolution(null);
+            setEditorState(null);
+          }}
+          onDismissDuplicateResolution={() => setDuplicateResolution(null)}
+          onDraftChange={updateEditorDraft}
           onApplyToChildrenChange={setBulkApplyToChildren}
           onInheritParentTagChange={(checked) => {
             setChildCreateDefaults((current) => ({
               ...current,
               inheritParentTag: checked
             }));
-            setEditorDraft((current) => ({
-              ...current,
+            updateEditorDraft({
+              ...editorDraft,
               tag: checked && activeParentNode ? formatTagList(activeParentNode.tags) : "",
               tagTouched: false
-            }));
+            });
           }}
           onInheritParentColorChange={(checked) => {
             setChildCreateDefaults((current) => ({
               ...current,
               inheritParentColor: checked
             }));
-            setEditorDraft((current) => ({
-              ...current,
+            updateEditorDraft({
+              ...editorDraft,
               color: checked ? activeParentNode?.color ?? "" : "",
               colorTouched: false
-            }));
+            });
           }}
           onCancel={() => {
             setEditorState(null);
+            setDuplicateResolution(null);
             setBulkApplyToChildren(false);
             focusTreeSurface(treeSurfaceRef.current);
           }}
@@ -1690,7 +2208,71 @@ export function SkillsSpotlight({
         />
       ) : null}
 
-      {toastMessage ? <aside className="skill-tree-toast">{toastMessage}</aside> : null}
+      {duplicateResolution ? (
+        <div className="skill-duplicate-callout" role="status">
+          <div className="skill-duplicate-callout__header">
+            <strong>Duplicate skill detected</strong>
+            <button
+              type="button"
+              className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+              onClick={() => setDuplicateResolution(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+          <p>{duplicateResolution.guidance}</p>
+          <div className="skill-duplicate-callout__list">
+            {duplicateResolution.candidates.map((candidate) => (
+              <div key={candidate.skillId} className="skill-duplicate-callout__item">
+                <div>
+                  <strong>{candidate.canonicalLabel}</strong>
+                  <p>{candidate.matchKind} match • {candidate.referenceCount} references</p>
+                </div>
+                <div className="skill-duplicate-callout__actions">
+                  <button
+                    type="button"
+                    className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                    onClick={() => {
+                      void focusExistingSkill(candidate.skillId);
+                      setDuplicateResolution(null);
+                    }}
+                  >
+                    Select Existing
+                  </button>
+                  {duplicateResolution.sourceNodeId ? (
+                    <button
+                      type="button"
+                      className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                      onClick={() => {
+                        void resolvePromotionDuplicate(candidate, "create-reference-to-existing");
+                      }}
+                    >
+                      Create Reference
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {toastEntries.length > 0 ? (
+        <div className="skill-tree-toast-stack">
+          {toastEntries.map((entry) => (
+            <aside
+              key={entry.id}
+              className={
+                entry.tone === "error"
+                  ? "skill-tree-toast skill-tree-toast--error"
+                  : "skill-tree-toast"
+              }
+            >
+              {entry.message}
+            </aside>
+          ))}
+        </div>
+      ) : null}
     </article>
   );
 }

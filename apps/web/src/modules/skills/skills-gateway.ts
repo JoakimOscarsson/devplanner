@@ -6,7 +6,8 @@ import type {
   Skill
 } from "@pdp-helper/contracts-graph";
 import { ID_PREFIXES } from "@pdp-helper/contracts-core";
-import { GatewayClient } from "@pdp-helper/runtime-web";
+import { GatewayClient, GatewayRequestError } from "@pdp-helper/runtime-web";
+import type { DomainError } from "@pdp-helper/contracts-core";
 
 export interface SkillInventoryEntry {
   readonly skillId: string;
@@ -137,7 +138,23 @@ function createFetchRequest(baseUrl: string, fetcher: typeof fetch) {
     const response = await fetcher(`${baseUrl}${path}`, init);
 
     if (!response.ok) {
-      throw new Error(`Gateway request failed for ${path} with ${response.status}.`);
+      let errorBody: Partial<DomainError> | null = null;
+
+      try {
+        errorBody = (await response.json()) as Partial<DomainError>;
+      } catch {
+        errorBody = null;
+      }
+
+      throw new GatewayRequestError({
+        message:
+          typeof errorBody?.message === "string" && errorBody.message.trim().length > 0
+            ? errorBody.message
+            : `Gateway request failed for ${path} with ${response.status}.`,
+        status: response.status,
+        ...(typeof errorBody?.code === "string" ? { code: errorBody.code } : {}),
+        ...(errorBody?.details ? { details: errorBody.details } : {})
+      });
     }
 
     return (await response.json()) as TPayload;

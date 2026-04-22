@@ -5,11 +5,16 @@
 - Talks to domain services only through gateway-visible `/api/v1/...` routes, using same-origin browser requests and a local dev proxy to the gateway.
 - Module folders under `src/modules/*` consume shared gateway access through `@pdp-helper/runtime-web`.
 - The skill-tree page currently exposes a compact tree UI with search, a filter popover for multi-select tag/color filtering, keyboard navigation, drag reorder, multi-select, bulk edit/delete, and modal editing for label, description, tags, and color.
+- Skill-tree toast feedback stacks at the browser edge so multiple success/error messages do not overwrite one another during rapid edits.
 - Skill-tag inputs accept comma- or semicolon-separated values and preserve multiple tags across edit flows.
 - Clearing a skill color in the modal sends an explicit `null` update so the backend removes the stored color.
 - The skill-tree surface autofocuses on page load so arrow keys and create/edit shortcuts work without an initial click.
 - Entering multi-select mode starts with an empty selection, and bulk actions automatically return the page to single-select mode after they complete.
-- Skill-tree drag reorder is intentionally disabled while search or filter constraints are active so visual drop targets always match the persisted order.
+- The skill-tree page exposes `Select Visible`, `Clear Selection`, `Expand Visible`, and `Collapse All` controls for large-tree workflows.
+- Skill-tree drag reorder is intentionally disabled while search, filter, or multi-select constraints are active so visual drop targets always match the persisted order.
+- Skill-tree reorder starts from an explicit drag handle and only communicates within-level movement.
+- Skill creation, editing, and brainstorm promotion surface duplicate-skill conflicts inline and allow the user to jump to an existing canonical skill instead of creating a duplicate.
+- Brainstorm promotion candidates are surfaced directly on the skill-tree page so governance actions can happen without switching pages.
 - The filter popover and left navigation drawer both support `Escape` to close and return focus to their trigger buttons.
 - The brainstorm page autofocuses its workspace surface on load and accepts `N` for root node creation alongside the child/sibling hotkeys.
 - Planner goals initialize an empty local breakdown shell on creation so the first added plan item or evidence note appears immediately.

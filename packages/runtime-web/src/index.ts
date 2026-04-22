@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   buildModuleCapabilities,
+  type DomainError,
   type ModuleCapability,
   type ServiceHealthSnapshot
 } from "@pdp-helper/contracts-core";
@@ -11,6 +12,25 @@ export interface GatewayCapabilitiesResponse {
 
 export interface GatewayHealthResponse {
   services: ServiceHealthSnapshot[];
+}
+
+export class GatewayRequestError extends Error {
+  readonly status: number;
+  readonly code: string | undefined;
+  readonly details: DomainError["details"] | undefined;
+
+  constructor(input: {
+    readonly message: string;
+    readonly status: number;
+    readonly code?: string;
+    readonly details?: DomainError["details"];
+  }) {
+    super(input.message);
+    this.name = "GatewayRequestError";
+    this.status = input.status;
+    this.code = input.code;
+    this.details = input.details;
+  }
 }
 
 export class GatewayClient {
@@ -28,7 +48,32 @@ export class GatewayClient {
     const response = await fetch(`${this.baseUrl}${path}`, init);
 
     if (!response.ok) {
-      throw new Error(`Gateway request failed for ${path} with ${response.status}.`);
+      let errorBody: Partial<DomainError> | null = null;
+      let fallbackMessage = `Gateway request failed for ${path} with ${response.status}.`;
+
+      try {
+        errorBody = (await response.json()) as Partial<DomainError>;
+      } catch {
+        try {
+          const text = await response.text();
+
+          if (text.trim().length > 0) {
+            fallbackMessage = text.trim();
+          }
+        } catch {
+          errorBody = null;
+        }
+      }
+
+      throw new GatewayRequestError({
+        message:
+          typeof errorBody?.message === "string" && errorBody.message.trim().length > 0
+            ? errorBody.message
+            : fallbackMessage,
+        status: response.status,
+        ...(typeof errorBody?.code === "string" ? { code: errorBody.code } : {}),
+        ...(errorBody?.details ? { details: errorBody.details } : {})
+      });
     }
 
     return (await response.json()) as TPayload;
