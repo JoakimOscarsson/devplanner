@@ -8,6 +8,18 @@ const repoRoot = path.resolve(currentDir, "../..");
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: {
+      "/api": {
+        target: process.env.GATEWAY_PROXY_TARGET ?? "http://localhost:4000",
+        changeOrigin: true
+      },
+      "/health": {
+        target: process.env.GATEWAY_PROXY_TARGET ?? "http://localhost:4000",
+        changeOrigin: true
+      }
+    }
+  },
   resolve: {
     alias: {
       "@pdp-helper/contracts-core": path.resolve(
@@ -45,4 +57,3 @@ export default defineConfig({
     }
   }
 });
-

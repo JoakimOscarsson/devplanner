@@ -609,8 +609,10 @@ export function SkillsSpotlight({
 
   useEffect(() => {
     if (visibleRows.length === 0) {
-      setSelectedNodeId(null);
-      setSelectedNodeIds(new Set());
+      if (selectedNodeId !== null) {
+        setSelectedNodeId(null);
+      }
+      setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
       return;
     }
 
