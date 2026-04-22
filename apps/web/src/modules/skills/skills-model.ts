@@ -77,8 +77,8 @@ export const TEMPORARILY_HIDDEN_SKILLTREE_FEATURES = [
   "Show reference nodes inline in the tree",
   "Resolve duplicate canonical skills from the tree",
   "Review brainstorm promotion candidates from the skill tree page",
-  "Bulk actions such as multi-select, batch tagging, or batch reorder",
-  "Skill rating and gap filters"
+  "Skill rating and gap filters",
+  "Bulk move or re-parent actions for multiple selected skills"
 ] as const;
 
 export const SKILL_TREE_DEPTH_LIMIT = 50;

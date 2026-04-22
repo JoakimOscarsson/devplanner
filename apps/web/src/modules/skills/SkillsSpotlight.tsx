@@ -64,6 +64,8 @@ interface DropIndicatorState {
   readonly position: "before" | "after";
 }
 
+type ActiveInteractionMode = "keyboard" | "pointer" | null;
+
 type SkillTreeSelectionInput = {
   readonly nodeId: string;
   readonly multiSelectEnabled: boolean;
@@ -606,6 +608,8 @@ export function SkillsSpotlight({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<ReadonlySet<string>>(new Set());
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [activeInteractionMode, setActiveInteractionMode] =
+    useState<ActiveInteractionMode>(null);
   const [multiSelectEnabled, setMultiSelectEnabled] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<SkillTreeFilterState>({
@@ -707,12 +711,14 @@ export function SkillsSpotlight({
     [dropIndicator, visibleRows]
   );
   const lastVisibleRowId = visibleRows[visibleRows.length - 1]?.id ?? null;
-  const activeRowId = hoveredNodeId ?? selectedNodeId;
+  const activeRowId = selectedNodeId ?? hoveredNodeId;
   const selectedRow = visibleRows.find((row) => row.id === activeRowId) ?? null;
   const bulkSelectionCount = selectedNodeIds.size;
   const bulkSelectionActive = multiSelectEnabled && bulkSelectionCount > 1;
   const hasActiveFilters =
     (activeFilters.tags?.length ?? 0) > 0 || (activeFilters.colors?.length ?? 0) > 0;
+  const reorderEnabled =
+    searchQuery.trim().length === 0 && !hasActiveFilters && !multiSelectEnabled;
   const activeParentNode =
     editorState?.parentNodeId
       ? findTreeNodeById(model.treeRoots, editorState.parentNodeId)
@@ -746,6 +752,9 @@ export function SkillsSpotlight({
       if (hoveredNodeId !== null) {
         setHoveredNodeId(null);
       }
+      if (activeInteractionMode !== null) {
+        setActiveInteractionMode(null);
+      }
       setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
       return;
     }
@@ -757,7 +766,7 @@ export function SkillsSpotlight({
     if (hoveredNodeId && !visibleRows.some((row) => row.id === hoveredNodeId)) {
       setHoveredNodeId(null);
     }
-  }, [hoveredNodeId, selectedNodeId, visibleRows]);
+  }, [activeInteractionMode, hoveredNodeId, selectedNodeId, visibleRows]);
 
   useEffect(() => {
     if (didAutoFocusTreeSurface.current || loading || editorState || visibleRows.length === 0) {
@@ -819,6 +828,27 @@ export function SkillsSpotlight({
 
     return () => {
       window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [filterMenuOpen]);
+
+  useEffect(() => {
+    if (!filterMenuOpen) {
+      return;
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setFilterMenuOpen(false);
+      filterButtonRef.current?.focus();
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
     };
   }, [filterMenuOpen]);
 
@@ -909,6 +939,7 @@ export function SkillsSpotlight({
     });
     setSelectedNodeId(null);
     setHoveredNodeId(null);
+    setActiveInteractionMode(null);
   }
 
   function toggleFilterValue(kind: "tags" | "colors", value: string) {
@@ -938,6 +969,7 @@ export function SkillsSpotlight({
   function handleRowSelection(nodeId: string) {
     setSelectedNodeId(nodeId);
     setHoveredNodeId(nodeId);
+    setActiveInteractionMode("pointer");
 
     if (!multiSelectEnabled) {
       return;
@@ -985,6 +1017,7 @@ export function SkillsSpotlight({
         setSelectedNodeIds(new Set());
         setSelectedNodeId(null);
         setHoveredNodeId(null);
+        setActiveInteractionMode(null);
         await refreshSnapshot("Skills updated.", selectedNodeId);
       } else if (editorState.mode === "edit" && editorState.nodeId) {
         await gateway.updateSkillTreeNode({
@@ -1093,6 +1126,7 @@ export function SkillsSpotlight({
       setSelectedNodeIds(new Set());
       setSelectedNodeId(null);
       setHoveredNodeId(null);
+      setActiveInteractionMode(null);
       await refreshSnapshot("Selected skills removed.");
       setError(null);
       focusTreeSurface(treeSurfaceRef.current);
@@ -1161,22 +1195,26 @@ export function SkillsSpotlight({
     switch (action) {
       case "select-previous":
         setHoveredNodeId(null);
+        setActiveInteractionMode("keyboard");
         setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
         setSelectedNodeId(moveSkillTreeSelection(visibleRows, activeRowId, -1));
         break;
       case "select-next":
         setHoveredNodeId(null);
+        setActiveInteractionMode("keyboard");
         setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
         setSelectedNodeId(moveSkillTreeSelection(visibleRows, activeRowId, 1));
         break;
       case "expand":
         setHoveredNodeId(null);
+        setActiveInteractionMode("keyboard");
         if (selectedRow?.hasChildren) {
           setExpandedIds((current) => new Set(current).add(selectedRow.id));
         }
         break;
       case "collapse":
         setHoveredNodeId(null);
+        setActiveInteractionMode("keyboard");
         if (selectedRow?.hasChildren && expandedIds.has(selectedRow.id)) {
           setExpandedIds((current) => {
             const next = new Set(current);
@@ -1376,8 +1414,9 @@ export function SkillsSpotlight({
             onPointerLeave={() => {
               setHoveredNodeId(null);
 
-              if (!multiSelectEnabled) {
+              if (!multiSelectEnabled && activeInteractionMode === "pointer") {
                 setSelectedNodeId(null);
+                setActiveInteractionMode(null);
               }
             }}
           >
@@ -1417,9 +1456,14 @@ export function SkillsSpotlight({
                       .filter(Boolean)
                       .join(" ")}
                     style={{ paddingLeft: `${18 + row.depth * 28}px` }}
-                    draggable={searchQuery.trim().length === 0}
+                    draggable={reorderEnabled}
                     onClick={() => handleRowSelection(row.id)}
                     onPointerEnter={() => {
+                      if (draggedNodeId) {
+                        setHoveredNodeId(null);
+                        return;
+                      }
+
                       setHoveredNodeId(row.id);
 
                       const pointerSelectedNodeId = resolveSkillTreeSelectionFromPointer({
@@ -1429,16 +1473,27 @@ export function SkillsSpotlight({
                       });
 
                       if (pointerSelectedNodeId) {
+                        setActiveInteractionMode("pointer");
                         setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
                         setSelectedNodeId(pointerSelectedNodeId);
                       }
                     }}
-                    onDragStart={() => setDraggedNodeId(row.id)}
+                    onDragStart={() => {
+                      if (!reorderEnabled) {
+                        return;
+                      }
+
+                      setDraggedNodeId(row.id);
+                    }}
                     onDragEnd={() => {
                       setDraggedNodeId(null);
                       setDropIndicator(null);
                     }}
                     onDragOver={(event) => {
+                      if (!reorderEnabled) {
+                        return;
+                      }
+
                       event.preventDefault();
                       const rowBounds = event.currentTarget.getBoundingClientRect();
                       setDropIndicator(
@@ -1456,6 +1511,10 @@ export function SkillsSpotlight({
                       )
                     }
                     onDrop={(event) => {
+                      if (!reorderEnabled) {
+                        return;
+                      }
+
                       event.preventDefault();
                       void handleDrop(
                         row.id,

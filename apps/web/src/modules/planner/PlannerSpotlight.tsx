@@ -76,6 +76,29 @@ function mergeGoalPlan(
   };
 }
 
+export function ensureGoalPlan(
+  snapshot: PlannerSnapshot,
+  goalId: Goal["id"]
+): PlannerGoalPlan | null {
+  const existingPlan = snapshot.plansByGoalId[goalId];
+
+  if (existingPlan) {
+    return existingPlan;
+  }
+
+  const goal = snapshot.goals.find((entry) => entry.id === goalId);
+
+  if (!goal) {
+    return null;
+  }
+
+  return {
+    goal,
+    planItems: [],
+    evidenceNotes: []
+  };
+}
+
 export function PlannerSpotlight({
   module,
   gatewayBaseUrl = gatewayUrl,
@@ -234,10 +257,18 @@ export function PlannerSpotlight({
         if (nextGoal) {
           setLocalSnapshot((current) => {
             const baseSnapshot = current ?? EMPTY_PLANNER_SNAPSHOT;
+            const nextGoalPlan: PlannerGoalPlan = {
+              goal: nextGoal,
+              planItems: [],
+              evidenceNotes: []
+            };
 
             return {
               goals: [...baseSnapshot.goals, nextGoal].sort(compareGoals),
-              plansByGoalId: baseSnapshot.plansByGoalId,
+              plansByGoalId: {
+                ...baseSnapshot.plansByGoalId,
+                [nextGoal.id]: nextGoalPlan
+              },
               selectedGoalId:
                 selectedGoalId === undefined
                   ? nextGoal.id
@@ -291,7 +322,7 @@ export function PlannerSpotlight({
               return current;
             }
 
-            const currentPlan = current.plansByGoalId[goalId];
+            const currentPlan = ensureGoalPlan(current, goalId);
 
             if (!currentPlan) {
               return current;
@@ -361,7 +392,7 @@ export function PlannerSpotlight({
               return current;
             }
 
-            const currentPlan = current.plansByGoalId[goalId];
+            const currentPlan = ensureGoalPlan(current, goalId);
 
             if (!currentPlan) {
               return current;

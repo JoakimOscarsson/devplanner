@@ -9,3 +9,8 @@
 - Clearing a skill color in the modal sends an explicit `null` update so the backend removes the stored color.
 - The skill-tree surface autofocuses on page load so arrow keys and create/edit shortcuts work without an initial click.
 - Entering multi-select mode starts with an empty selection, and bulk actions automatically return the page to single-select mode after they complete.
+- Skill-tree drag reorder is intentionally disabled while search or filter constraints are active so visual drop targets always match the persisted order.
+- The filter popover and left navigation drawer both support `Escape` to close and return focus to their trigger buttons.
+- The brainstorm page autofocuses its workspace surface on load and accepts `N` for root node creation alongside the child/sibling hotkeys.
+- Planner goals initialize an empty local breakdown shell on creation so the first added plan item or evidence note appears immediately.
+- Recommendation manual runs refresh the visible feed/provider snapshot before appending the run entry, and recent decision history prefers recommendation titles over raw ids.

@@ -119,6 +119,7 @@ export function getConnectionPath(input: {
 
 export function getShortcutHintRows() {
   return [
+    "N create root",
     "C create child",
     "S create sibling",
     "Delete remove selected",

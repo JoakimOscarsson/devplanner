@@ -282,6 +282,8 @@ describe("skills module", () => {
         expect.stringContaining("promotion")
       ])
     );
+    expect(model.hiddenFeatureNotes.join(" ")).not.toContain("batch tagging");
+    expect(model.hiddenFeatureNotes.join(" ")).not.toContain("Bulk actions");
   });
 
   it("flattens visible rows for expanded branches and query filtering", () => {

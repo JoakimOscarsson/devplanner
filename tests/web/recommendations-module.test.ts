@@ -17,7 +17,10 @@ import {
   EMPTY_RECOMMENDATIONS_SNAPSHOT,
   type RecommendationsSnapshot
 } from "../../apps/web/src/modules/recommendations/recommendations-model";
-import { RecommendationsSpotlight } from "../../apps/web/src/modules/recommendations/RecommendationsSpotlight";
+import {
+  RecommendationsSpotlight,
+  resolveRecommendationDecisionLabel
+} from "../../apps/web/src/modules/recommendations/RecommendationsSpotlight";
 
 const auditFields = {
   workspaceId: "wrk_demo_owner",
@@ -271,5 +274,22 @@ describe("recommendations module", () => {
     expect(model.pendingRecommendations).toHaveLength(0);
     expect(model.runSummary.totalRuns).toBe(0);
     expect(model.providerSummary.message).toContain("not reported");
+  });
+
+  it("prefers recommendation titles over raw ids in decision history labels", () => {
+    const snapshot = createSnapshot();
+
+    expect(
+      resolveRecommendationDecisionLabel(
+        snapshot,
+        "rec_denied" as Recommendation["id"]
+      )
+    ).toBe("Create a skill graph alias");
+    expect(
+      resolveRecommendationDecisionLabel(
+        snapshot,
+        "rec_missing" as Recommendation["id"]
+      )
+    ).toBe("rec_missing");
   });
 });

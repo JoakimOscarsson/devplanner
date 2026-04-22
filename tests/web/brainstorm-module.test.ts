@@ -478,6 +478,12 @@ describe("brainstorm module", () => {
 
     expect(
       interpretBrainstormHotkey({
+        key: "n",
+        targetTagName: "div"
+      })
+    ).toBe("compose-root");
+    expect(
+      interpretBrainstormHotkey({
         key: "c",
         targetTagName: "div"
       })
@@ -508,5 +514,6 @@ describe("brainstorm module", () => {
     expect(markup).toContain("Create sibling");
     expect(markup).toContain("Reparent mode");
     expect(markup).toContain("Hotkeys");
+    expect(markup).toContain("N create root");
   });
 });

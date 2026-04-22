@@ -8,6 +8,7 @@ import {
   createPlannerGatewayPort,
   loadPlannerSnapshot
 } from "../../apps/web/src/modules/planner/planner-gateway";
+import { ensureGoalPlan } from "../../apps/web/src/modules/planner/PlannerSpotlight";
 import {
   buildPlannerPanelModel,
   type PlannerSnapshot
@@ -318,6 +319,20 @@ describe("planner module", () => {
     expect(model.selectedGoal?.evidenceNotes[0]).toMatchObject({
       body: "Completed the first study lab.",
       planItemTitle: "Refresh TypeScript fundamentals"
+    });
+  });
+
+  it("creates an empty goal plan for new goals that have no fetched breakdown yet", () => {
+    const snapshot: PlannerSnapshot = {
+      goals: [createGoal("gol_new", "New goal")],
+      plansByGoalId: {},
+      selectedGoalId: "gol_new" as Goal["id"]
+    };
+
+    expect(ensureGoalPlan(snapshot, "gol_new" as Goal["id"])).toEqual({
+      goal: snapshot.goals[0],
+      planItems: [],
+      evidenceNotes: []
     });
   });
 });

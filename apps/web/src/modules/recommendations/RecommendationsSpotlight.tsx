@@ -36,6 +36,16 @@ function getErrorMessage(error: unknown) {
     : "Unable to load recommendations.";
 }
 
+export function resolveRecommendationDecisionLabel(
+  snapshot: RecommendationsSnapshot,
+  recommendationId: Recommendation["id"]
+) {
+  return (
+    snapshot.recommendations.find((entry) => entry.id === recommendationId)?.title ??
+    recommendationId
+  );
+}
+
 export function RecommendationsSpotlight({
   module,
   gatewayBaseUrl = gatewayUrl,
@@ -52,6 +62,30 @@ export function RecommendationsSpotlight({
   const [feedback, setFeedback] = useState<string | null>(feedbackOverride ?? null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [decisionReasonById, setDecisionReasonById] = useState<Record<string, string>>({});
+
+  async function refreshSnapshot(note?: string) {
+    if (snapshot) {
+      if (note) {
+        setFeedback(note);
+      }
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const nextSnapshot = await loadRecommendationsSnapshot(
+        createRecommendationsGatewayPort(gatewayBaseUrl)
+      );
+      setLocalSnapshot(nextSnapshot);
+      setError(null);
+      setFeedback(note ?? null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!snapshot) {
@@ -129,16 +163,18 @@ export function RecommendationsSpotlight({
         const response = await createRecommendationsGatewayPort(
           gatewayBaseUrl
         ).requestRun({});
+        await refreshSnapshot(response.reason);
 
         setLocalSnapshot((current) =>
           current
             ? {
                 ...current,
-                runs: [...current.runs, response.run]
+                runs: current.runs.some((entry) => entry.id === response.run.id)
+                  ? current.runs
+                  : [...current.runs, response.run]
               }
             : current
         );
-        setFeedback(response.reason);
       }
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -329,7 +365,12 @@ export function RecommendationsSpotlight({
               model.recentDecisions.map((decision) => (
                 <article key={decision.recommendationId} className="health-row">
                   <div>
-                    <strong>{decision.recommendationId}</strong>
+                    <strong>
+                      {resolveRecommendationDecisionLabel(
+                        activeSnapshot,
+                        decision.recommendationId
+                      )}
+                    </strong>
                     <p>{decision.reason ?? "No review note recorded."}</p>
                   </div>
                   <span

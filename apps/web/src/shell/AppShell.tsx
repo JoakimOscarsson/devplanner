@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleCapability, ServiceHealthSnapshot } from "@pdp-helper/contracts-core";
 import { useGatewayState, type GatewayState } from "@pdp-helper/runtime-web";
 import { gatewayUrl } from "../lib/gateway";
@@ -257,12 +257,39 @@ export function AppShell({ gatewayState, initialPath }: AppShellProps) {
   const navigation = useMemo(() => buildShellPageNavigation(modules), [modules]);
   const activePage = getShellPage(pageId);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const showStageActions = pageId !== "skills";
   const useMinimalShell = pageId === "skills";
 
   useEffect(() => {
     setSidebarOpen(false);
   }, [pageId]);
+
+  useEffect(() => {
+    if (!sidebarOpen) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setSidebarOpen(false);
+      menuButtonRef.current?.focus();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [sidebarOpen]);
+
+  function closeSidebar() {
+    setSidebarOpen(false);
+    menuButtonRef.current?.focus();
+  }
 
   return (
     <main
@@ -289,6 +316,7 @@ export function AppShell({ gatewayState, initialPath }: AppShellProps) {
       ) : null}
 
       <button
+        ref={menuButtonRef}
         type="button"
         className={
           sidebarOpen
@@ -309,41 +337,38 @@ export function AppShell({ gatewayState, initialPath }: AppShellProps) {
           type="button"
           className="shell-sidebar__scrim"
           aria-label="Close navigation"
-          onClick={() => setSidebarOpen(false)}
+          onClick={closeSidebar}
         />
       ) : null}
 
       <div className="app-shell__layout">
-        <aside
-          className={
-            sidebarOpen
-              ? "shell-sidebar panel shell-sidebar--drawer shell-sidebar--open"
-              : "shell-sidebar panel shell-sidebar--drawer"
-          }
-        >
-          <nav className="shell-nav" aria-label="Primary">
-            {navigation.map((item) => (
-              <a
-                key={item.id}
-                href={item.href}
-                onClick={(event) => {
-                  event.preventDefault();
-                  navigate(item.id);
-                }}
-                className={
-                  item.id === pageId
-                    ? "shell-nav__link shell-nav__link--active"
-                    : "shell-nav__link"
-                }
-                aria-current={item.id === pageId ? "page" : undefined}
-                title={item.label}
-              >
-                <span className="shell-nav__label">{item.label}</span>
-                <span className={`status-dot status-dot--${item.status}`} />
-              </a>
-            ))}
-          </nav>
-        </aside>
+        {sidebarOpen ? (
+          <aside className="shell-sidebar panel shell-sidebar--drawer shell-sidebar--open">
+            <nav className="shell-nav" aria-label="Primary">
+              {navigation.map((item) => (
+                <a
+                  key={item.id}
+                  href={item.href}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    navigate(item.id);
+                    closeSidebar();
+                  }}
+                  className={
+                    item.id === pageId
+                      ? "shell-nav__link shell-nav__link--active"
+                      : "shell-nav__link"
+                  }
+                  aria-current={item.id === pageId ? "page" : undefined}
+                  title={item.label}
+                >
+                  <span className="shell-nav__label">{item.label}</span>
+                  <span className={`status-dot status-dot--${item.status}`} />
+                </a>
+              ))}
+            </nav>
+          </aside>
+        ) : null}
 
         <section className="page-stage">
           {!useMinimalShell ? (

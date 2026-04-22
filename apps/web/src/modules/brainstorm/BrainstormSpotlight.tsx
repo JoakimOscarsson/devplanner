@@ -188,6 +188,7 @@ export function BrainstormSpotlight({
   const workspaceRef = useRef<HTMLElement | null>(null);
   const snapshotRef = useRef<BrainstormSnapshot | null>(snapshot ?? null);
   const dragStateRef = useRef<DragState | null>(null);
+  const didAutoFocusWorkspace = useRef(false);
 
   useEffect(() => {
     if (!snapshot) {
@@ -277,6 +278,15 @@ export function BrainstormSpotlight({
   useEffect(() => {
     snapshotRef.current = localSnapshot;
   }, [localSnapshot]);
+
+  useEffect(() => {
+    if (didAutoFocusWorkspace.current || loading || !selectedCanvas) {
+      return;
+    }
+
+    didAutoFocusWorkspace.current = true;
+    workspaceRef.current?.focus();
+  }, [loading, selectedCanvas]);
 
   useEffect(() => {
     if (!selectedGraph) {
