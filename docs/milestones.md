@@ -10,8 +10,8 @@ This document tracks implementation milestones, substeps, dependencies, and clea
 - When a slice is only partially complete, keep the parent substep unchecked and describe the completed portion in plain text.
 
 ## Current Status Snapshot
-- Most recent confirmed green `main` CI before this tracker update: run `24782027380` for commit `250296b` on 2026-04-22.
-- Current development baseline on `main`: architecture/contracts/platform/web foundation complete, plus integrated demo slices for brainstorm, planner goal writes, tracker projections, skill duplicate guidance, and recommendations review.
+- Most recent confirmed green `main` CI before this tracker update: run `24783822191` for commit `309b4dd` on 2026-04-22.
+- Current development baseline on `main`: architecture/contracts/platform/web foundation complete, plus integrated page-based demo flows for brainstorm mind-mapping, skill-tree promotion and duplicate handling, planner goal writes, tracker projections, and recommendations review.
 
 ## Live Status Board
 
@@ -37,8 +37,7 @@ This document tracks implementation milestones, substeps, dependencies, and clea
 ### Milestone 5: Graph Foundation
 - [x] Demo slice: brainstorm tab lifecycle and node editing
 - [x] Brainstorm quality pass: node editing and layout contracts
-- [ ] Demo slice: skill promotion and duplicate handling
-Current state: duplicate detection and skill inventory guidance are integrated; brainstorm-to-skill promotion still remains.
+- [x] Demo slice: skill promotion and duplicate handling
 
 ### Milestone 6: Planning And Tracking
 - [x] Demo slice: goal and plan-item writes
