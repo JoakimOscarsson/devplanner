@@ -20,6 +20,7 @@ import {
   flattenVisibleSkillTree,
   interpretSkillTreeHotkey,
   moveSkillTreeSelection,
+  resolveVisibleDropIndicator,
   type SkillTreeNodeModel
 } from "./skills-model";
 
@@ -579,6 +580,10 @@ export function SkillsSpotlight({
     () => flattenVisibleSkillTree(model.treeRoots, expandedIds, deferredSearchQuery),
     [deferredSearchQuery, expandedIds, model.treeRoots]
   );
+  const visibleDropIndicator = useMemo(
+    () => resolveVisibleDropIndicator(visibleRows, dropIndicator),
+    [dropIndicator, visibleRows]
+  );
   const selectedRow = visibleRows.find((row) => row.id === selectedNodeId) ?? null;
   const bulkSelectionCount = selectedNodeIds.size;
   const bulkSelectionActive = multiSelectEnabled && bulkSelectionCount > 1;
@@ -1077,12 +1082,18 @@ export function SkillsSpotlight({
         </div>
 
         {visibleRows.length > 0 ? (
-          <ul className="skill-tree skill-tree--interactive">
+          <ul
+            className={
+              draggedNodeId
+                ? "skill-tree skill-tree--interactive skill-tree--dragging"
+                : "skill-tree skill-tree--interactive"
+            }
+          >
             {visibleRows.map((row) => {
               const isSelected =
                 row.id === selectedNodeId || (multiSelectEnabled && selectedNodeIds.has(row.id));
               const isExpanded = expandedIds.has(row.id);
-              const isDropTarget = row.id === dropIndicator?.targetNodeId;
+              const isDropTarget = row.id === visibleDropIndicator?.targetNodeId;
 
               return (
                 <li key={row.id} className="skill-tree__item">
@@ -1092,12 +1103,12 @@ export function SkillsSpotlight({
                       "skill-tree__row--interactive",
                       isSelected ? "skill-tree__row--selected" : "",
                       isDropTarget ? "skill-tree__row--drop-target" : "",
-                      dropIndicator?.targetNodeId === row.id &&
-                      dropIndicator.position === "before"
+                      visibleDropIndicator?.targetNodeId === row.id &&
+                      visibleDropIndicator.position === "before"
                         ? "skill-tree__row--drop-before"
                         : "",
-                      dropIndicator?.targetNodeId === row.id &&
-                      dropIndicator.position === "after"
+                      visibleDropIndicator?.targetNodeId === row.id &&
+                      visibleDropIndicator.position === "after"
                         ? "skill-tree__row--drop-after"
                         : ""
                     ]

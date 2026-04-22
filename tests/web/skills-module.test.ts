@@ -12,6 +12,7 @@ import {
   flattenVisibleSkillTree,
   interpretSkillTreeHotkey,
   moveSkillTreeSelection,
+  resolveVisibleDropIndicator,
   type SkillsSnapshot
 } from "../../apps/web/src/modules/skills/skills-model";
 import { SkillsSpotlight } from "../../apps/web/src/modules/skills/SkillsSpotlight";
@@ -286,6 +287,24 @@ describe("skills module", () => {
       "nod_skill_typescript"
     ]);
     expect(visibleRows[1]?.depth).toBe(1);
+  });
+
+  it("moves an after-drop indicator to the last visible descendant of an expanded branch", () => {
+    const model = buildSkillsPanelModel(createSnapshot());
+    const visibleRows = flattenVisibleSkillTree(
+      model.treeRoots,
+      new Set(["nod_skill_frontend", "nod_skill_typescript"])
+    );
+
+    const indicator = resolveVisibleDropIndicator(visibleRows, {
+      targetNodeId: "nod_skill_frontend",
+      position: "after"
+    });
+
+    expect(indicator).toEqual({
+      targetNodeId: "nod_skill_typescript",
+      position: "after"
+    });
   });
 
   it("keeps root skills collapsed when nothing is expanded", () => {

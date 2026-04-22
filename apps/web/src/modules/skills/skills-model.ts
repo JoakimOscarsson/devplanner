@@ -37,6 +37,11 @@ export interface VisibleSkillTreeRowModel {
   readonly node: SkillTreeNodeModel;
 }
 
+export interface SkillTreeDropIndicatorModel {
+  readonly targetNodeId: string;
+  readonly position: "before" | "after";
+}
+
 export type SkillTreeHotkeyAction =
   | "select-previous"
   | "select-next"
@@ -298,6 +303,43 @@ export function flattenVisibleSkillTree(
   flattenSkillTreeNodes(filteredRoots, expandedIds, 0, rows, alwaysExpand);
 
   return rows;
+}
+
+export function resolveVisibleDropIndicator(
+  rows: readonly VisibleSkillTreeRowModel[],
+  indicator: SkillTreeDropIndicatorModel | null
+) {
+  if (!indicator) {
+    return null;
+  }
+
+  if (indicator.position === "before") {
+    return indicator;
+  }
+
+  const targetIndex = rows.findIndex((row) => row.id === indicator.targetNodeId);
+
+  if (targetIndex === -1) {
+    return indicator;
+  }
+
+  let displayTargetId = indicator.targetNodeId;
+  const targetDepth = rows[targetIndex]!.depth;
+
+  for (let index = targetIndex + 1; index < rows.length; index += 1) {
+    const nextRow = rows[index]!;
+
+    if (nextRow.depth <= targetDepth) {
+      break;
+    }
+
+    displayTargetId = nextRow.id;
+  }
+
+  return {
+    targetNodeId: displayTargetId,
+    position: "after"
+  } satisfies SkillTreeDropIndicatorModel;
 }
 
 export function interpretSkillTreeHotkey(input: {
