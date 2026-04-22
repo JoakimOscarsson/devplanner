@@ -3,6 +3,61 @@
 ## Purpose
 This document tracks implementation milestones, substeps, dependencies, and clear definitions of done. Each substep is sized for agentic implementation and includes explicit ownership boundaries.
 
+## Tracking Rules
+- Treat this file as the authoritative delivery tracker for milestone and slice status.
+- Mark an item as complete only when it is integrated on `main` and the latest GitHub Actions `CI` run on `main` is green.
+- If implementation exists but is not yet integrated or the latest `main` CI run is not green, leave the item unchecked and note the blocker.
+- When a slice is only partially complete, keep the parent substep unchecked and describe the completed portion in plain text.
+
+## Current Status Snapshot
+- Most recent confirmed green `main` CI before this tracker update: run `24782027380` for commit `250296b` on 2026-04-22.
+- Current development baseline on `main`: architecture/contracts/platform/web foundation complete, plus integrated demo slices for brainstorm, planner goal writes, tracker projections, skill duplicate guidance, and recommendations review.
+
+## Live Status Board
+
+### Milestone 1: Architecture Locked
+- [x] Gate docs authored
+- [x] Shared convention review completed
+
+### Milestone 2: Contracts Locked
+- [x] Core conventions package finalized
+- [x] Domain contract packages aligned
+- [x] External recommendation and MCP audit contracts added
+
+### Milestone 3: Platform Core
+- [x] Dev-loop optimization and build avoidance
+- [x] Shared runtime scaffolding
+- [x] Gateway aggregation and proxy
+- [x] Boundary enforcement and CI
+
+### Milestone 4: Web Canvas Foundation
+- [x] Shell split into stable module folders
+- [x] Shared graph primitives
+
+### Milestone 5: Graph Foundation
+- [x] Demo slice: brainstorm tab lifecycle and node editing
+- [x] Brainstorm quality pass: node editing and layout contracts
+- [ ] Demo slice: skill promotion and duplicate handling
+Current state: duplicate detection and skill inventory guidance are integrated; brainstorm-to-skill promotion still remains.
+
+### Milestone 6: Planning And Tracking
+- [x] Demo slice: goal and plan-item writes
+- [ ] Planner integration pass: visibility state relative to skill graph
+- [x] Demo slice: tracker projections
+
+### Milestone 7: Recommendations
+- [x] Demo slice: provider health and run lifecycle
+- [x] Demo slice: recommendation decision flow
+- [ ] Integration pass: async downstream application model
+
+### Milestone 8: External Agent Surface
+- [ ] Demo slice: MCP tool catalog and scopes
+- [ ] Demo slice: audit trail and policy enforcement
+
+### Milestone 9: Resilience And Quality
+- [x] Contract and dependency drift protection
+- [ ] Failure-path and degradation validation
+
 ## Delivery Rhythm
 - Prefer vertical slices that can be demoed through the web app at the end of each milestone.
 - Shared-surface milestones may still be infrastructure-heavy, but each should expose a visible or callable demo checkpoint.
@@ -271,26 +326,24 @@ Acceptance test: service-down and provider-down test coverage
 Out of scope: database hardening
 
 ## Recommended Iteration Order
-1. Finish the remaining Milestone 3 dev-loop optimization substep before taking on more broad multi-module fan-out.
-2. Continue Milestone 5 graph-domain vertical slices.
-3. Continue Milestone 6 planner/tracker vertical slices.
-4. Proceed to Milestone 7 recommendations after the local/demo loop is fast enough to support repeated multi-service iteration.
+1. Finish Milestone 5 substep 3 by implementing brainstorm-to-skill promotion on top of the already integrated duplicate-guidance flow.
+2. Finish Milestone 6 substep 2 so planner visibility state and skill-graph integration are no longer split across partially complete slices.
+3. Finish Milestone 7 substep 3 by making recommendation application fully asynchronous and downstream-safe.
+4. Move into Milestone 8 once the domain flows exposed through MCP are already proven in the web and gateway paths.
 
 ### Definition of done
 - Contract drift and forbidden imports fail quality gates.
 - Optional service outages are surfaced explicitly and do not crash unrelated modules.
 - The repo stays safe for parallel agent work across independent tracks.
 
-## Recommended Iteration Order
-1. Milestone 5 substep 1
-Why: delivers the first product-shaped demo while keeping ownership inside graph-service, `packages/ui-graph`, and the brainstorm web module.
-2. Milestone 6 substep 1
-Why: turns brainstorm content into actionable planning with another clear demo without waiting on tracker or recommendations.
-3. Milestone 6 substep 3
-Why: adds progress visibility once planner writes are stable.
-4. Milestone 5 substep 3
-Why: skill promotion and duplicate resolution become easier to validate once users can already create and edit brainstorm nodes.
-5. Milestone 7
-Why: recommendations are more useful after graph and planning state exist.
-6. Milestone 8
+## Recommended Iteration Order Details
+1. Milestone 5 substep 3
+Why: the duplicate-guidance foundation is already integrated, so promotion is the next clean graph-domain vertical slice.
+2. Milestone 6 substep 2
+Why: planner-to-skill visibility is the main remaining gap before planning and graph feel like one coherent user flow.
+3. Milestone 7 substep 3
+Why: recommendation review is already demoable, and async downstream application is the remaining resilience step.
+4. Milestone 8
 Why: the external agent surface should expose already-proven domain flows rather than forcing domain work to debug through MCP first.
+5. Milestone 9 substep 2
+Why: once the main domain slices are integrated, service-down and degradation validation becomes more representative and more valuable.
