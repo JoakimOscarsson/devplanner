@@ -1633,21 +1633,27 @@ export function deleteNode(canvasId: Canvas["id"], nodeId: GraphNode["id"]) {
   };
 }
 
-export function findDuplicateSkillCandidates(label: string) {
+export function findDuplicateSkillCandidates(label: string): DuplicateSkillMatch[] {
   const requestedLabel = label.trim().toLowerCase();
+  const inventory = getSkillInventory();
 
   return graphStore.skills
     .filter((skill) => skill.normalizedLabel.includes(requestedLabel))
-    .map(
-      (skill) =>
-        ({
-          skillId: skill.id,
-          canonicalLabel: skill.canonicalLabel,
-          normalizedLabel: skill.normalizedLabel,
-          sourceNodeId: skill.sourceNodeId,
-          similarityScore: skill.normalizedLabel === requestedLabel ? 1 : 0.82
-        }) satisfies DuplicateSkillCandidate
-    );
+    .map((skill) => {
+      const inventoryEntry = inventory.inventory.find((entry) => entry.skillId === skill.id);
+      const matchKind: DuplicateSkillMatch["matchKind"] =
+        skill.normalizedLabel === requestedLabel ? "exact" : "related";
+
+      return {
+        skillId: skill.id,
+        canonicalLabel: skill.canonicalLabel,
+        normalizedLabel: skill.normalizedLabel,
+        sourceNodeId: skill.sourceNodeId,
+        similarityScore: skill.normalizedLabel === requestedLabel ? 1 : 0.82,
+        referenceCount: inventoryEntry?.referenceCount ?? 0,
+        matchKind
+      } satisfies DuplicateSkillMatch;
+    });
 }
 
 export function getSkillInventory(): SkillInventorySnapshot {
@@ -1765,6 +1771,8 @@ export function promoteNodeToSkill(
           canonicalLabel: candidate.canonicalLabel,
           normalizedLabel: candidate.normalizedLabel,
           similarityScore: candidate.similarityScore,
+          referenceCount: candidate.referenceCount,
+          matchKind: candidate.matchKind,
           ...(candidate.sourceNodeId ? { sourceNodeId: candidate.sourceNodeId } : {})
         })),
         sourceNodeId: nodeId
@@ -1974,6 +1982,8 @@ export function createSkillTreeNode(input: {
           canonicalLabel: candidate.canonicalLabel,
           normalizedLabel: candidate.normalizedLabel,
           similarityScore: candidate.similarityScore,
+          referenceCount: candidate.referenceCount,
+          matchKind: candidate.matchKind,
           ...(candidate.sourceNodeId ? { sourceNodeId: candidate.sourceNodeId } : {})
         }))
       }
@@ -2064,7 +2074,10 @@ export function updateSkillTreeNode(
           candidates: duplicateCandidates.map((candidate) => ({
             skillId: candidate.id,
             canonicalLabel: candidate.canonicalLabel,
-            normalizedLabel: candidate.normalizedLabel
+            normalizedLabel: candidate.normalizedLabel,
+            similarityScore: 1,
+            referenceCount: getReferenceNodesForSkill(candidate.id).length,
+            matchKind: "exact"
           }))
         }
       );

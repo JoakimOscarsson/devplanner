@@ -318,19 +318,43 @@ function readDuplicateSkillCandidates(value: unknown): readonly DuplicateSkillCa
     return [];
   }
 
-  return value.filter((candidate): candidate is DuplicateSkillCandidate => {
+  return value.flatMap((candidate) => {
     if (!candidate || typeof candidate !== "object") {
-      return false;
+      return [];
     }
 
-    return (
-      typeof candidate.skillId === "string" &&
-      typeof candidate.canonicalLabel === "string" &&
-      typeof candidate.normalizedLabel === "string" &&
-      typeof candidate.similarityScore === "number" &&
-      typeof candidate.referenceCount === "number" &&
-      (candidate.matchKind === "exact" || candidate.matchKind === "related")
-    );
+    if (
+      typeof candidate.skillId !== "string" ||
+      typeof candidate.canonicalLabel !== "string" ||
+      typeof candidate.normalizedLabel !== "string" ||
+      typeof candidate.similarityScore !== "number"
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        skillId: candidate.skillId,
+        canonicalLabel: candidate.canonicalLabel,
+        normalizedLabel: candidate.normalizedLabel,
+        ...(typeof candidate.sourceNodeId === "string"
+          ? { sourceNodeId: candidate.sourceNodeId }
+          : {}),
+        ...(typeof candidate.sourceNodeLabel === "string"
+          ? { sourceNodeLabel: candidate.sourceNodeLabel }
+          : {}),
+        ...(typeof candidate.sourceCanvasName === "string"
+          ? { sourceCanvasName: candidate.sourceCanvasName }
+          : {}),
+        similarityScore: candidate.similarityScore,
+        referenceCount:
+          typeof candidate.referenceCount === "number" ? candidate.referenceCount : 0,
+        matchKind:
+          candidate.matchKind === "exact" || candidate.matchKind === "related"
+            ? candidate.matchKind
+            : "exact"
+      } satisfies DuplicateSkillCandidate
+    ];
   });
 }
 
