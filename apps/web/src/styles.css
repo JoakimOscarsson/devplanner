@@ -753,7 +753,6 @@ textarea {
     box-shadow 140ms ease;
 }
 
-.skill-tree__row--hovered,
 .skill-tree__row--selected {
   background: rgba(241, 245, 249, 0.92);
   border-color: rgba(203, 213, 225, 0.96);
@@ -903,7 +902,6 @@ textarea {
   transform: translateX(4px);
 }
 
-.skill-tree__row--hovered .skill-tree__actions,
 .skill-tree__row--selected .skill-tree__actions {
   opacity: 1;
   transform: translateX(0);
@@ -1076,6 +1074,7 @@ textarea {
   display: grid;
   gap: 10px;
   padding-top: 2px;
+  overflow: hidden;
 }
 
 .skill-modal__suggestions-header {
@@ -1090,9 +1089,84 @@ textarea {
   line-height: 1.35;
 }
 
+.skill-modal__suggestion-nav {
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 6px;
+  background: rgba(248, 250, 252, 0.82);
+}
+
+.skill-modal__suggestion-nav-track {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 300%;
+  transition: transform 180ms ease;
+}
+
+.skill-modal__suggestion-pane {
+  min-width: 0;
+  padding: 0.42rem;
+}
+
+.skill-modal__suggestion-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.08rem 0.08rem 0.42rem;
+}
+
+.skill-modal__suggestion-back {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #667085;
+  box-shadow: none;
+  font-size: 0.72rem;
+}
+
 .skill-modal__suggestion-list {
   display: grid;
   gap: 8px;
+}
+
+.skill-modal__suggestion-nav-button {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 0.68rem 0.72rem;
+  border-radius: 6px;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  background: rgba(255, 255, 255, 0.9);
+  text-align: left;
+  box-shadow: none;
+}
+
+.skill-modal__suggestion-nav-button strong {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.skill-modal__suggestion-nav-button p {
+  margin: 4px 0 0;
+  color: #667085;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.skill-modal__suggestion-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.92);
+  color: #475467;
+  font-size: 0.68rem;
 }
 
 .skill-modal__suggestion-card {
@@ -1231,19 +1305,21 @@ textarea {
 
 .skill-tree-toast-stack {
   position: fixed;
-  right: 0;
+  right: max(2px, env(safe-area-inset-right));
   top: 12px;
   z-index: 65;
   display: grid;
   gap: 8px;
+  justify-items: end;
+  pointer-events: none;
 }
 
 .skill-tree-toast {
-  position: fixed;
-  right: 0;
+  position: relative;
+  right: auto;
   top: auto;
   z-index: auto;
-  max-width: min(320px, calc(100vw - 8px));
+  max-width: min(320px, calc(100vw - 4px));
   padding: 0.62rem 0.78rem;
   border-radius: 6px 0 0 6px;
   background: rgba(30, 41, 59, 0.96);
@@ -1261,7 +1337,7 @@ textarea {
 @keyframes skill-toast-enter {
   0% {
     opacity: 0;
-    transform: translateX(calc(100% + 20px));
+    transform: translateX(calc(100% + 4px));
   }
 
   10%,

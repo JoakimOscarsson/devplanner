@@ -13,6 +13,7 @@
     "@pdp-helper/contracts-core": "workspace:*",
     "@pdp-helper/contracts-graph": "workspace:*",
     "@pdp-helper/contracts-planner": "workspace:*",
+    "@pdp-helper/contracts-recommendation": "workspace:*",
     "@pdp-helper/runtime-web": "workspace:*",
     "@pdp-helper/ui-graph": "workspace:*",
     "@pdp-helper/ui-shell": "workspace:*",

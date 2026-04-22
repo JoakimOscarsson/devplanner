@@ -19,6 +19,8 @@ import {
 } from "../../apps/web/src/modules/skills/skills-model";
 import {
   resolveSkillTreeBulkDeleteSummary,
+  buildCreationSuggestions,
+  buildSuggestionCategories,
   shouldCloseSkillEditorFromPointerInteraction,
   resolveSkillTreeDropIndicatorFromPointer,
   SkillsSpotlight
@@ -50,6 +52,7 @@ function createSnapshot(): SkillsSnapshot {
       totalSkillGraphNodes: 3
     },
     promotionCandidates: [],
+    recommendationSuggestions: [],
     skillGraph: {
       canvas: {
         id: "can_skill_graph" as never,
@@ -238,6 +241,60 @@ describe("skills module", () => {
     );
   });
 
+  it("loads recommendation suggestions from the recommendations feed", async () => {
+    const fetcher = vi
+      .fn()
+      .mockImplementation(async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url.includes("/api/v1/recommendations")
+              ? {
+                  recommendations: [
+                    {
+                      id: "rec_skill_architecture",
+                      runId: "rrn_demo",
+                      status: "pending",
+                      origin: "built-in",
+                      action: "create-node",
+                      title: "Architecture",
+                      target: {
+                        targetKind: "skill"
+                      },
+                      payload: {
+                        suggestedSkillLabel: "Architecture"
+                      },
+                      workspaceId: "wrk_demo_owner",
+                      createdBy: "act_recommendation",
+                      createdAt: "2026-04-22T08:00:00.000Z",
+                      updatedAt: "2026-04-22T08:00:00.000Z"
+                    }
+                  ]
+                }
+              : { ok: true }
+          ),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        )
+      );
+
+    const port = createSkillsGatewayPort("http://localhost:4000", fetcher);
+    const suggestions = await port.listRecommendationSuggestions();
+
+    expect(suggestions).toEqual([
+      {
+        id: "rec_skill_architecture",
+        label: "Architecture",
+        description: "Architecture",
+        sourceLabel: "Built-in recommendations",
+        sourceTag: "recommendation:built-in"
+      }
+    ]);
+  });
+
   it("loads a skills snapshot and builds an ordered tree model", async () => {
     const snapshot = await loadSkillsSnapshot(
       {
@@ -260,7 +317,8 @@ describe("skills module", () => {
             exactMatchCount: 0
           }
         }),
-        listPromotionCandidates: async () => []
+        listPromotionCandidates: async () => [],
+        listRecommendationSuggestions: async () => []
       },
       {
         initialLabelCheck: "TypeScript"
@@ -288,6 +346,53 @@ describe("skills module", () => {
     );
     expect(model.hiddenFeatureNotes.join(" ")).not.toContain("batch tagging");
     expect(model.hiddenFeatureNotes.join(" ")).not.toContain("Bulk actions");
+  });
+
+  it("filters already-added skills out of creation suggestions and groups the rest", () => {
+    const suggestions = buildCreationSuggestions(
+      [
+        {
+          nodeId: "nod_canvas_architecture" as never,
+          canvasId: "can_brainstorm_1" as never,
+          canvasName: "Career ideas",
+          label: "Architecture",
+          category: "skill"
+        },
+        {
+          nodeId: "nod_canvas_systems" as never,
+          canvasId: "can_brainstorm_2" as never,
+          canvasName: "Platform ideas",
+          label: "Distributed Systems",
+          category: "skill"
+        }
+      ],
+      [
+        {
+          id: "rec_system_design" as never,
+          label: "System Design",
+          description: "Suggested by recommender",
+          sourceLabel: "Built-in recommendations",
+          sourceTag: "recommendation:built-in"
+        }
+      ],
+      ["architecture"]
+    );
+
+    expect(suggestions.map((entry) => entry.label)).toEqual([
+      "Distributed Systems",
+      "System Design"
+    ]);
+
+    expect(buildSuggestionCategories(suggestions)).toEqual([
+      expect.objectContaining({
+        id: "brainstorm",
+        label: "Import from brainstorm canvas"
+      }),
+      expect.objectContaining({
+        id: "recommendation",
+        label: "Recommendations"
+      })
+    ]);
   });
 
   it("flattens visible rows for expanded branches and query filtering", () => {

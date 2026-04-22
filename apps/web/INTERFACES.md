@@ -11,10 +11,10 @@
 - Clearing a skill color in the modal sends an explicit `null` update so the backend removes the stored color.
 - The skill-tree surface autofocuses on page load so arrow keys and create/edit shortcuts work without an initial click.
 - Entering multi-select mode starts with an empty selection, and bulk actions automatically return the page to single-select mode after they complete.
-- The skill-tree page exposes `Select Visible`, `Clear Selection`, `Expand Visible`, and `Collapse All` controls for large-tree workflows.
+- The skill-tree page exposes `Select Visible` and `Clear Selection` during multi-select, and uses compact icon controls for `Expand Visible` and `Collapse All`.
 - Skill-tree drag reorder is intentionally disabled while search, filter, or multi-select constraints are active so visual drop targets always match the persisted order.
 - Skill-tree reorder starts from an explicit drag handle and only communicates within-level movement.
-- Skill creation surfaces suggestion cards inside the add-skill modal; selecting a brainstorm suggestion prefills the draft and appends a `brainstorm:<canvas>` tag, and the same card format is intended for future recommendation/LLM sources.
+- Skill creation surfaces a grouped suggestion navigator inside the add-skill modal. Suggestions are filtered so labels that already exist in the skill tree are not suggested again, and brainstorm or recommendation sources are browsed through category and group drill-down panes before selecting a concrete item.
 - Exact duplicate skill creation is resolved inline in the add-skill modal with three explicit choices: create a reference here, move the existing canonical origin here, or make the new entry canonical and replace the old origin with a reference.
 - Reference nodes are rendered inline in the tree, expose a `Go to origin` action, and use `Enter` as a keyboard shortcut to jump to the canonical skill location.
 - The filter popover and left navigation drawer both support `Escape` to close and return focus to their trigger buttons.

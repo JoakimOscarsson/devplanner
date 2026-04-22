@@ -5,6 +5,7 @@ import type {
   GraphNodeCategory,
   Skill
 } from "@pdp-helper/contracts-graph";
+import type { Recommendation } from "@pdp-helper/contracts-recommendation";
 import { ID_PREFIXES } from "@pdp-helper/contracts-core";
 import { GatewayClient, GatewayRequestError } from "@pdp-helper/runtime-web";
 import type { DomainError } from "@pdp-helper/contracts-core";
@@ -93,6 +94,14 @@ export interface PromotionCandidate {
   readonly parentNodeId?: GraphNode["parentNodeId"];
 }
 
+export interface RecommendationSkillSuggestion {
+  readonly id: Recommendation["id"];
+  readonly label: string;
+  readonly description: string;
+  readonly sourceLabel: string;
+  readonly sourceTag: string;
+}
+
 export interface CheckDuplicateInput {
   readonly label: string;
 }
@@ -130,6 +139,7 @@ export interface SkillsGatewayPort {
   getInventory(): Promise<SkillsInventoryResponse>;
   getSkillGraph(): Promise<SkillGraphSnapshot>;
   listPromotionCandidates(): Promise<readonly PromotionCandidate[]>;
+  listRecommendationSuggestions(): Promise<readonly RecommendationSkillSuggestion[]>;
   checkDuplicate(input: CheckDuplicateInput): Promise<DuplicateSkillCheckResult>;
   promote(input: PromoteSkillInput): Promise<unknown>;
   resolveDuplicate(input: ResolveDuplicateInput): Promise<unknown>;
@@ -233,6 +243,44 @@ export function createSkillsGatewayPort(
       );
     },
 
+    async listRecommendationSuggestions() {
+      const feed = await request<{
+        recommendations: readonly Recommendation[];
+      }>("/api/v1/recommendations?status=pending");
+
+      return feed.recommendations.flatMap((recommendation) => {
+        const payload = recommendation.payload as Record<string, unknown>;
+        const explicitLabel =
+          typeof payload.suggestedSkillLabel === "string"
+            ? payload.suggestedSkillLabel
+            : typeof payload.skillLabel === "string"
+              ? payload.skillLabel
+              : undefined;
+        const canUseTitle =
+          recommendation.action === "create-node" || recommendation.action === "link-skill";
+        const label = explicitLabel ?? (canUseTitle ? recommendation.title : undefined);
+
+        if (!label || label.trim().length === 0) {
+          return [];
+        }
+
+        return [
+          {
+            id: recommendation.id,
+            label: label.trim(),
+            description: recommendation.rationale ?? recommendation.title,
+            sourceLabel:
+              recommendation.origin === "built-in"
+                ? "Built-in recommendations"
+                : recommendation.origin === "external-tool"
+                  ? "External recommendations"
+                  : "System recommendations",
+            sourceTag: `recommendation:${recommendation.origin}`
+          } satisfies RecommendationSkillSuggestion
+        ];
+      });
+    },
+
     checkDuplicate(input) {
       return request<DuplicateSkillCheckResult>("/api/v1/skills/check-duplicate", {
         method: "POST",
@@ -332,6 +380,7 @@ export interface SkillsSnapshot {
   readonly inventory: readonly SkillInventoryEntry[];
   readonly summary: SkillsInventoryResponse["summary"];
   readonly promotionCandidates?: readonly PromotionCandidate[];
+  readonly recommendationSuggestions?: readonly RecommendationSkillSuggestion[];
   readonly duplicateCheck?: DuplicateSkillCheckResult;
   readonly skillGraph?: SkillGraphSnapshot;
 }
@@ -342,7 +391,10 @@ export async function loadSkillsSnapshot(
     "getInventory" | "checkDuplicate"
   > &
     Partial<
-      Pick<SkillsGatewayPort, "getSkillGraph" | "listPromotionCandidates">
+      Pick<
+        SkillsGatewayPort,
+        "getSkillGraph" | "listPromotionCandidates" | "listRecommendationSuggestions"
+      >
     >,
   options: {
     readonly initialLabelCheck?: string;
@@ -358,6 +410,10 @@ export async function loadSkillsSnapshot(
     typeof gateway.listPromotionCandidates === "function"
       ? await gateway.listPromotionCandidates()
       : [];
+  const recommendationSuggestions =
+    typeof gateway.listRecommendationSuggestions === "function"
+      ? await gateway.listRecommendationSuggestions()
+      : [];
 
   const duplicateCheck = options.initialLabelCheck?.trim()
     ? await gateway.checkDuplicate({
@@ -370,6 +426,7 @@ export async function loadSkillsSnapshot(
     summary: inventoryResponse.summary,
     skillGraph,
     promotionCandidates,
+    recommendationSuggestions,
     ...(duplicateCheck ? { duplicateCheck } : {})
   };
 }

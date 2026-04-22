@@ -14,7 +14,8 @@ import {
   loadSkillsSnapshot,
   type SkillsSnapshot,
   type DuplicateSkillCandidate,
-  type PromotionCandidate
+  type PromotionCandidate,
+  type RecommendationSkillSuggestion
 } from "./skills-gateway";
 import { GatewayRequestError } from "@pdp-helper/runtime-web";
 import {
@@ -87,9 +88,28 @@ interface SkillCreationSuggestion {
   readonly id: string;
   readonly label: string;
   readonly description: string;
-  readonly sourceLabel: string;
   readonly sourceTag: string;
   readonly sourceTone: "brainstorm" | "recommendation";
+  readonly categoryId: "brainstorm" | "recommendation";
+  readonly categoryLabel: string;
+  readonly categoryDescription: string;
+  readonly groupId: string;
+  readonly groupLabel: string;
+  readonly groupDescription: string;
+}
+
+interface SkillCreationSuggestionGroup {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly suggestions: readonly SkillCreationSuggestion[];
+}
+
+interface SkillCreationSuggestionCategory {
+  readonly id: "brainstorm" | "recommendation";
+  readonly label: string;
+  readonly description: string;
+  readonly groups: readonly SkillCreationSuggestionGroup[];
 }
 
 type SkillTreeBulkDeleteSummary = {
@@ -372,17 +392,101 @@ function appendSuggestionTag(existingTagInput: string, nextTag: string) {
   return formatTagList(tags);
 }
 
-function buildCreationSuggestions(
-  promotionCandidates: readonly PromotionCandidate[]
+function normalizeSuggestionLabel(label: string) {
+  return label.trim().toLowerCase();
+}
+
+export function buildCreationSuggestions(
+  promotionCandidates: readonly PromotionCandidate[],
+  recommendationSuggestions: readonly RecommendationSkillSuggestion[],
+  existingLabels: readonly string[]
 ): readonly SkillCreationSuggestion[] {
-  return promotionCandidates.map((candidate) => ({
-    id: candidate.nodeId,
-    label: candidate.label,
-    description: `${candidate.category} from ${candidate.canvasName}`,
-    sourceLabel: `Brainstorm • ${candidate.canvasName}`,
-    sourceTag: `brainstorm:${candidate.canvasName}`,
-    sourceTone: "brainstorm"
-  }));
+  const existingLabelSet = new Set(existingLabels.map(normalizeSuggestionLabel));
+
+  return [
+    ...promotionCandidates.map(
+      (candidate) =>
+        ({
+          id: candidate.nodeId,
+          label: candidate.label,
+          description: `${candidate.category} from ${candidate.canvasName}`,
+          sourceTag: `brainstorm:${candidate.canvasName}`,
+          sourceTone: "brainstorm",
+          categoryId: "brainstorm",
+          categoryLabel: "Import from brainstorm canvas",
+          categoryDescription: "Bring uncaptured brainstorm items into the skill tree.",
+          groupId: `brainstorm:${candidate.canvasId}`,
+          groupLabel: candidate.canvasName,
+          groupDescription: `Ideas from ${candidate.canvasName}`
+        }) satisfies SkillCreationSuggestion
+    ),
+    ...recommendationSuggestions.map(
+      (suggestion) =>
+        ({
+          id: suggestion.id,
+          label: suggestion.label,
+          description: suggestion.description,
+          sourceTag: suggestion.sourceTag,
+          sourceTone: "recommendation",
+          categoryId: "recommendation",
+          categoryLabel: "Recommendations",
+          categoryDescription: "Review ideas suggested by built-in or external recommenders.",
+          groupId: `recommendation:${suggestion.sourceLabel}`,
+          groupLabel: suggestion.sourceLabel,
+          groupDescription: `Suggestions from ${suggestion.sourceLabel}`
+        }) satisfies SkillCreationSuggestion
+    )
+  ].filter((suggestion) => !existingLabelSet.has(normalizeSuggestionLabel(suggestion.label)));
+}
+
+export function buildSuggestionCategories(
+  suggestions: readonly SkillCreationSuggestion[]
+): readonly SkillCreationSuggestionCategory[] {
+  const categoryMap = new Map<SkillCreationSuggestionCategory["id"], SkillCreationSuggestionCategory>();
+
+  for (const suggestion of suggestions) {
+    const currentCategory = categoryMap.get(suggestion.categoryId);
+    const group = {
+      id: suggestion.groupId,
+      label: suggestion.groupLabel,
+      description: suggestion.groupDescription,
+      suggestions: [suggestion]
+    } satisfies SkillCreationSuggestionGroup;
+
+    if (!currentCategory) {
+      categoryMap.set(suggestion.categoryId, {
+        id: suggestion.categoryId,
+        label: suggestion.categoryLabel,
+        description: suggestion.categoryDescription,
+        groups: [group]
+      });
+      continue;
+    }
+
+    const existingGroup = currentCategory.groups.find((entry) => entry.id === suggestion.groupId);
+
+    if (!existingGroup) {
+      categoryMap.set(suggestion.categoryId, {
+        ...currentCategory,
+        groups: [...currentCategory.groups, group]
+      });
+      continue;
+    }
+
+    categoryMap.set(suggestion.categoryId, {
+      ...currentCategory,
+      groups: currentCategory.groups.map((entry) =>
+        entry.id === existingGroup.id
+          ? {
+              ...entry,
+              suggestions: [...entry.suggestions, suggestion]
+            }
+          : entry
+      )
+    });
+  }
+
+  return [...categoryMap.values()];
 }
 
 function collectTopLevelSelectedIds(
@@ -499,6 +603,34 @@ function FilterIcon() {
   );
 }
 
+function CollapseTreeIcon() {
+  return (
+    <svg aria-hidden="true" className="skill-tree__action-icon" viewBox="0 0 12 12" fill="none">
+      <path
+        d="M2.2 3.3h7.6M2.2 6h7.6M2.2 8.7h4.8"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.2"
+      />
+    </svg>
+  );
+}
+
+function ExpandTreeIcon() {
+  return (
+    <svg aria-hidden="true" className="skill-tree__action-icon" viewBox="0 0 12 12" fill="none">
+      <path
+        d="M2.2 3.3h7.6M2.2 6h7.6M2.2 8.7h7.6M8.2 2.2v3.1M6.7 3.75h3.1"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.2"
+      />
+    </svg>
+  );
+}
+
 function SkillEditorModal({
   state,
   draft,
@@ -550,10 +682,31 @@ function SkillEditorModal({
 }) {
   const formRef = useRef<HTMLFormElement | null>(null);
   const pointerStartedOnBackdrop = useRef(false);
+  const [selectedSuggestionCategoryId, setSelectedSuggestionCategoryId] = useState<
+    SkillCreationSuggestionCategory["id"] | null
+  >(null);
+  const [selectedSuggestionGroupId, setSelectedSuggestionGroupId] = useState<string | null>(null);
   const isBulkEdit = state.mode === "bulk-edit";
   const isCreateChild = state.mode === "create-child";
   const isCreateMode =
     state.mode === "create-root" || state.mode === "create-child" || state.mode === "create-sibling";
+  const suggestionCategories = useMemo(
+    () => buildSuggestionCategories(suggestions ?? []),
+    [suggestions]
+  );
+  const selectedSuggestionCategory =
+    selectedSuggestionCategoryId === null
+      ? null
+      : suggestionCategories.find((category) => category.id === selectedSuggestionCategoryId) ?? null;
+  const selectedSuggestionGroup =
+    selectedSuggestionCategory && selectedSuggestionGroupId
+      ? selectedSuggestionCategory.groups.find((group) => group.id === selectedSuggestionGroupId) ?? null
+      : null;
+  const suggestionNavigationDepth = selectedSuggestionGroup
+    ? 2
+    : selectedSuggestionCategory
+      ? 1
+      : 0;
   const submitDisabled =
     pending ||
     (isBulkEdit
@@ -566,6 +719,11 @@ function SkillEditorModal({
     );
     firstFocusable?.focus();
   }, []);
+
+  useEffect(() => {
+    setSelectedSuggestionCategoryId(null);
+    setSelectedSuggestionGroupId(null);
+  }, [state.mode]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -796,30 +954,112 @@ function SkillEditorModal({
             <aside className="skill-modal__suggestions">
               <div className="skill-modal__suggestions-header">
                 <strong>Suggestions</strong>
-                <p>Click a card to prefill the new skill and tag its source.</p>
+                <p>Browse grouped ideas and tap one to prefill the new skill.</p>
               </div>
-              <div className="skill-modal__suggestion-list">
-                {suggestions.map((suggestion) => (
-                  <button
-                    key={suggestion.id}
-                    type="button"
-                    className="skill-modal__suggestion-card"
-                    onClick={() => onSuggestionPick?.(suggestion)}
-                  >
-                    <span
-                      className={[
-                        "skill-modal__suggestion-tone",
-                        suggestion.sourceTone === "brainstorm"
-                          ? "skill-modal__suggestion-tone--brainstorm"
-                          : "skill-modal__suggestion-tone--recommendation"
-                      ].join(" ")}
-                    >
-                      {suggestion.sourceLabel}
-                    </span>
-                    <strong>{suggestion.label}</strong>
-                    <p>{suggestion.description}</p>
-                  </button>
-                ))}
+              <div className="skill-modal__suggestion-nav">
+                <div
+                  className="skill-modal__suggestion-nav-track"
+                  style={{ transform: `translateX(-${suggestionNavigationDepth * 100}%)` }}
+                >
+                  <div className="skill-modal__suggestion-pane">
+                    <div className="skill-modal__suggestion-list">
+                      {suggestionCategories.map((category) => (
+                        <button
+                          key={category.id}
+                          type="button"
+                          className="skill-modal__suggestion-nav-button"
+                          onClick={() => {
+                            setSelectedSuggestionCategoryId(category.id);
+                            setSelectedSuggestionGroupId(null);
+                          }}
+                        >
+                          <div>
+                            <strong>{category.label}</strong>
+                            <p>{category.description}</p>
+                          </div>
+                          <span className="skill-modal__suggestion-count">
+                            {category.groups.reduce(
+                              (total, group) => total + group.suggestions.length,
+                              0
+                            )}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="skill-modal__suggestion-pane">
+                    <div className="skill-modal__suggestion-breadcrumb">
+                      <button
+                        type="button"
+                        className="skill-modal__suggestion-back"
+                        onClick={() => {
+                          setSelectedSuggestionCategoryId(null);
+                          setSelectedSuggestionGroupId(null);
+                        }}
+                      >
+                        Back
+                      </button>
+                      <strong>{selectedSuggestionCategory?.label ?? "Suggestions"}</strong>
+                    </div>
+                    <div className="skill-modal__suggestion-list">
+                      {(selectedSuggestionCategory?.groups ?? []).map((group) => (
+                        <button
+                          key={group.id}
+                          type="button"
+                          className="skill-modal__suggestion-nav-button"
+                          onClick={() => {
+                            setSelectedSuggestionGroupId(group.id);
+                          }}
+                        >
+                          <div>
+                            <strong>{group.label}</strong>
+                            <p>{group.description}</p>
+                          </div>
+                          <span className="skill-modal__suggestion-count">
+                            {group.suggestions.length}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="skill-modal__suggestion-pane">
+                    <div className="skill-modal__suggestion-breadcrumb">
+                      <button
+                        type="button"
+                        className="skill-modal__suggestion-back"
+                        onClick={() => setSelectedSuggestionGroupId(null)}
+                      >
+                        Back
+                      </button>
+                      <strong>{selectedSuggestionGroup?.label ?? "Suggestions"}</strong>
+                    </div>
+                    <div className="skill-modal__suggestion-list">
+                      {(selectedSuggestionGroup?.suggestions ?? []).map((suggestion) => (
+                        <button
+                          key={suggestion.id}
+                          type="button"
+                          className="skill-modal__suggestion-card"
+                          onClick={() => onSuggestionPick?.(suggestion)}
+                        >
+                          <span
+                            className={[
+                              "skill-modal__suggestion-tone",
+                              suggestion.sourceTone === "brainstorm"
+                                ? "skill-modal__suggestion-tone--brainstorm"
+                                : "skill-modal__suggestion-tone--recommendation"
+                            ].join(" ")}
+                          >
+                            {suggestion.groupLabel}
+                          </span>
+                          <strong>{suggestion.label}</strong>
+                          <p>{suggestion.description}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             </aside>
           ) : null}
@@ -1053,9 +1293,11 @@ export function SkillsSpotlight({
   );
   const lastVisibleRowId = visibleRows[visibleRows.length - 1]?.id ?? null;
   const activeRowId =
-    activeInteractionMode === "pointer" && !multiSelectEnabled
-      ? hoveredNodeId
-      : selectedNodeId ?? hoveredNodeId;
+    multiSelectEnabled
+      ? null
+      : activeInteractionMode === "pointer"
+        ? hoveredNodeId
+        : selectedNodeId;
   const keyboardAnchorRowId = activeRowId;
   const selectedRow = visibleRows.find((row) => row.id === keyboardAnchorRowId) ?? null;
   const bulkSelectionCount = selectedNodeIds.size;
@@ -1075,9 +1317,15 @@ export function SkillsSpotlight({
         ? "filtered-empty"
         : null;
   const promotionCandidates = activeSnapshot.promotionCandidates ?? [];
+  const recommendationSuggestions = activeSnapshot.recommendationSuggestions ?? [];
   const creationSuggestions = useMemo(
-    () => buildCreationSuggestions(promotionCandidates),
-    [promotionCandidates]
+    () =>
+      buildCreationSuggestions(
+        promotionCandidates,
+        recommendationSuggestions,
+        activeSnapshot.inventory.map((entry) => entry.normalizedLabel)
+      ),
+    [activeSnapshot.inventory, promotionCandidates, recommendationSuggestions]
   );
   const activeParentNode =
     editorState?.parentNodeId
@@ -2001,19 +2249,23 @@ export function SkillsSpotlight({
             ) : null}
             <button
               type="button"
-              className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+              className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary skill-tree-toolbar__button--icon"
+              aria-label="Collapse all skills"
+              title="Collapse all"
               onClick={() => setExpandedIds(new Set())}
             >
-              Collapse All
+              <CollapseTreeIcon />
             </button>
             <button
               type="button"
-              className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+              className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary skill-tree-toolbar__button--icon"
+              aria-label="Expand visible skills"
+              title="Expand visible"
               onClick={() =>
                 setExpandedIds(new Set(visibleRows.filter((row) => row.hasChildren).map((row) => row.id)))
               }
             >
-              Expand Visible
+              <ExpandTreeIcon />
             </button>
             <button
               type="button"
@@ -2088,7 +2340,6 @@ export function SkillsSpotlight({
             }}
           >
             {visibleRows.map((row) => {
-              const isHovered = row.id === hoveredNodeId;
               const isSelected =
                 multiSelectEnabled
                   ? selectedNodeIds.has(row.id)
@@ -2113,7 +2364,6 @@ export function SkillsSpotlight({
                     className={[
                       "skill-tree__row",
                       "skill-tree__row--interactive",
-                      isHovered ? "skill-tree__row--hovered" : "",
                       isSelected ? "skill-tree__row--selected" : "",
                       isDropTarget ? "skill-tree__row--drop-target" : "",
                       visibleDropIndicator?.targetNodeId === row.id &&
