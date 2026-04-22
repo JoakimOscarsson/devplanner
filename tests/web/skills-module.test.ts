@@ -18,6 +18,8 @@ import {
 } from "../../apps/web/src/modules/skills/skills-model";
 import {
   shouldCloseSkillEditorFromPointerInteraction,
+  resolveSkillTreeDropIndicatorFromPointer,
+  resolveSkillTreeSelectionFromPointer,
   SkillsSpotlight
 } from "../../apps/web/src/modules/skills/SkillsSpotlight";
 
@@ -388,6 +390,58 @@ describe("skills module", () => {
     ).toBe(false);
   });
 
+  it("promotes pointer hover into the active selection when single-select is active", () => {
+    expect(
+      resolveSkillTreeSelectionFromPointer({
+        nodeId: "nod_skill_frontend",
+        multiSelectEnabled: false,
+        draggedNodeId: null
+      })
+    ).toBe("nod_skill_frontend");
+
+    expect(
+      resolveSkillTreeSelectionFromPointer({
+        nodeId: "nod_skill_frontend",
+        multiSelectEnabled: true,
+        draggedNodeId: null
+      })
+    ).toBeNull();
+
+    expect(
+      resolveSkillTreeSelectionFromPointer({
+        nodeId: "nod_skill_frontend",
+        multiSelectEnabled: false,
+        draggedNodeId: "nod_skill_typescript"
+      })
+    ).toBeNull();
+  });
+
+  it("only snaps drag placement to row tops and the bottom of the visible list", () => {
+    expect(
+      resolveSkillTreeDropIndicatorFromPointer({
+        rowId: "nod_skill_frontend",
+        isLastVisibleRow: false,
+        pointerY: 120,
+        rowBottom: 132
+      })
+    ).toEqual({
+      targetNodeId: "nod_skill_frontend",
+      position: "before"
+    });
+
+    expect(
+      resolveSkillTreeDropIndicatorFromPointer({
+        rowId: "nod_skill_typescript",
+        isLastVisibleRow: true,
+        pointerY: 131,
+        rowBottom: 132
+      })
+    ).toEqual({
+      targetNodeId: "nod_skill_typescript",
+      position: "after"
+    });
+  });
+
   it("renders the interactive tree, search, and editor affordances", () => {
     const markup = renderToStaticMarkup(
       createElement(SkillsSpotlight, {
@@ -401,6 +455,7 @@ describe("skills module", () => {
     expect(markup).toContain("Multi-select");
     expect(markup).toContain("Frontend");
     expect(markup).toContain("Skill tree ready.");
+    expect(markup).toContain("skill-tree__item--branch");
     expect(markup).toContain("Temporarily hidden skill-tree actions");
     expect(markup).toContain("Arrows navigate, Right expands, Left collapses");
   });

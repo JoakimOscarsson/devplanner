@@ -63,6 +63,12 @@ interface DropIndicatorState {
   readonly position: "before" | "after";
 }
 
+type SkillTreeSelectionInput = {
+  readonly nodeId: string;
+  readonly multiSelectEnabled: boolean;
+  readonly draggedNodeId: string | null;
+};
+
 const COLOR_OPTIONS = [
   "",
   "#ef4444",
@@ -105,6 +111,36 @@ export function shouldCloseSkillEditorFromPointerInteraction(input: {
   readonly endedOnBackdrop: boolean;
 }) {
   return input.startedOnBackdrop && input.endedOnBackdrop;
+}
+
+export function resolveSkillTreeSelectionFromPointer(input: SkillTreeSelectionInput) {
+  if (input.multiSelectEnabled || input.draggedNodeId) {
+    return null;
+  }
+
+  return input.nodeId;
+}
+
+export function resolveSkillTreeDropIndicatorFromPointer(input: {
+  readonly rowId: string;
+  readonly isLastVisibleRow: boolean;
+  readonly pointerY: number;
+  readonly rowBottom: number;
+  readonly endThreshold?: number;
+}): DropIndicatorState {
+  const threshold = input.endThreshold ?? 8;
+
+  if (input.isLastVisibleRow && input.pointerY >= input.rowBottom - threshold) {
+    return {
+      targetNodeId: input.rowId,
+      position: "after"
+    };
+  }
+
+  return {
+    targetNodeId: input.rowId,
+    position: "before"
+  };
 }
 
 function readStoredBoolean(key: string, fallback: boolean) {
@@ -619,6 +655,7 @@ export function SkillsSpotlight({
     () => resolveVisibleDropIndicator(visibleRows, dropIndicator),
     [dropIndicator, visibleRows]
   );
+  const lastVisibleRowId = visibleRows[visibleRows.length - 1]?.id ?? null;
   const selectedRow = visibleRows.find((row) => row.id === selectedNodeId) ?? null;
   const bulkSelectionCount = selectedNodeIds.size;
   const bulkSelectionActive = multiSelectEnabled && bulkSelectionCount > 1;
@@ -992,9 +1029,11 @@ export function SkillsSpotlight({
 
     switch (action) {
       case "select-previous":
+        setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
         setSelectedNodeId(moveSkillTreeSelection(visibleRows, selectedNodeId, -1));
         break;
       case "select-next":
+        setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
         setSelectedNodeId(moveSkillTreeSelection(visibleRows, selectedNodeId, 1));
         break;
       case "expand":
@@ -1130,10 +1169,20 @@ export function SkillsSpotlight({
               const isSelected =
                 row.id === selectedNodeId || (multiSelectEnabled && selectedNodeIds.has(row.id));
               const isExpanded = expandedIds.has(row.id);
-              const isDropTarget = row.id === visibleDropIndicator?.targetNodeId;
+              const isDropTarget =
+                visibleDropIndicator?.position === "before" &&
+                row.id === visibleDropIndicator.targetNodeId;
 
               return (
-                <li key={row.id} className="skill-tree__item">
+                <li
+                  key={row.id}
+                  className={[
+                    "skill-tree__item",
+                    row.hasChildren ? "skill-tree__item--branch" : ""
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
                   <div
                     className={[
                       "skill-tree__row",
@@ -1144,16 +1193,24 @@ export function SkillsSpotlight({
                       visibleDropIndicator.position === "before"
                         ? "skill-tree__row--drop-before"
                         : "",
-                      visibleDropIndicator?.targetNodeId === row.id &&
-                      visibleDropIndicator.position === "after"
-                        ? "skill-tree__row--drop-after"
-                        : ""
                     ]
                       .filter(Boolean)
                       .join(" ")}
                     style={{ paddingLeft: `${18 + row.depth * 28}px` }}
                     draggable={searchQuery.trim().length === 0}
                     onClick={() => handleRowSelection(row.id)}
+                    onPointerEnter={() => {
+                      const pointerSelectedNodeId = resolveSkillTreeSelectionFromPointer({
+                        nodeId: row.id,
+                        multiSelectEnabled,
+                        draggedNodeId
+                      });
+
+                      if (pointerSelectedNodeId) {
+                        setSelectedNodeIds((current) => (current.size === 0 ? current : new Set()));
+                        setSelectedNodeId(pointerSelectedNodeId);
+                      }
+                    }}
                     onDragStart={() => setDraggedNodeId(row.id)}
                     onDragEnd={() => {
                       setDraggedNodeId(null);
@@ -1162,12 +1219,14 @@ export function SkillsSpotlight({
                     onDragOver={(event) => {
                       event.preventDefault();
                       const rowBounds = event.currentTarget.getBoundingClientRect();
-                      const position =
-                        event.clientY < rowBounds.top + rowBounds.height / 2 ? "before" : "after";
-                      setDropIndicator({
-                        targetNodeId: row.id,
-                        position
-                      });
+                      setDropIndicator(
+                        resolveSkillTreeDropIndicatorFromPointer({
+                          rowId: row.id,
+                          isLastVisibleRow: row.id === lastVisibleRowId,
+                          pointerY: event.clientY,
+                          rowBottom: rowBounds.bottom
+                        })
+                      );
                     }}
                     onDragLeave={() =>
                       setDropIndicator((current) =>
@@ -1265,6 +1324,10 @@ export function SkillsSpotlight({
                 </li>
               );
             })}
+            {visibleDropIndicator?.position === "after" &&
+            visibleDropIndicator.targetNodeId === lastVisibleRowId ? (
+              <li className="skill-tree__drop-end" aria-hidden="true" />
+            ) : null}
           </ul>
         ) : (
           <div className="skill-tree__empty">

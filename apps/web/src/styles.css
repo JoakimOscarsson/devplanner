@@ -608,7 +608,7 @@ textarea {
 }
 
 .skill-tree__row--drop-before::before,
-.skill-tree__row--drop-after::after {
+.skill-tree__drop-end::before {
   content: "";
   position: absolute;
   left: 6px;
@@ -622,7 +622,15 @@ textarea {
   top: -1px;
 }
 
-.skill-tree__row--drop-after::after {
+.skill-tree__drop-end {
+  position: relative;
+  list-style: none;
+  height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.skill-tree__drop-end::before {
   bottom: -1px;
 }
 
@@ -681,6 +689,10 @@ textarea {
 .skill-tree__label {
   font-size: 0.8rem;
   font-weight: 400;
+}
+
+.skill-tree__item--branch .skill-tree__label {
+  font-weight: 600;
 }
 
 .skill-tree__tag,
