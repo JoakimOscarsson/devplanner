@@ -13,6 +13,10 @@
 - `POST /v1/skills/promote`
 - `POST /v1/skills/resolve-duplicate`
 - `POST /v1/skills/:skillId/references`
+- `POST /v1/skills/tree/nodes`
+- `PATCH /v1/skills/tree/nodes/:nodeId`
+- `POST /v1/skills/tree/nodes/:nodeId/reorder`
+- `DELETE /v1/skills/tree/nodes/:nodeId`
 
 ## Shared conventions
 - Uses id prefixes from `@pdp-helper/contracts-core.ID_PREFIXES`

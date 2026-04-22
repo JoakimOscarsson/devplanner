@@ -96,6 +96,28 @@ export interface CheckDuplicateInput {
   readonly label: string;
 }
 
+export interface CreateSkillTreeNodeInput {
+  readonly label: string;
+  readonly description?: string;
+  readonly tag?: string;
+  readonly color?: string;
+  readonly parentNodeId?: GraphNode["id"];
+}
+
+export interface UpdateSkillTreeNodeInput {
+  readonly nodeId: GraphNode["id"];
+  readonly label?: string;
+  readonly description?: string | null;
+  readonly tag?: string | null;
+  readonly color?: string | null;
+}
+
+export interface ReorderSkillTreeNodeInput {
+  readonly nodeId: GraphNode["id"];
+  readonly parentNodeId?: GraphNode["id"];
+  readonly targetIndex: number;
+}
+
 export interface SkillsGatewayPort {
   getInventory(): Promise<SkillsInventoryResponse>;
   getSkillGraph(): Promise<SkillGraphSnapshot>;
@@ -104,6 +126,10 @@ export interface SkillsGatewayPort {
   promote(input: PromoteSkillInput): Promise<unknown>;
   resolveDuplicate(input: ResolveDuplicateInput): Promise<unknown>;
   createReference(input: CreateSkillReferenceInput): Promise<unknown>;
+  createSkillTreeNode(input: CreateSkillTreeNodeInput): Promise<unknown>;
+  updateSkillTreeNode(input: UpdateSkillTreeNodeInput): Promise<unknown>;
+  reorderSkillTreeNode(input: ReorderSkillTreeNodeInput): Promise<unknown>;
+  deleteSkillTreeNode(nodeId: GraphNode["id"]): Promise<unknown>;
 }
 
 function createFetchRequest(baseUrl: string, fetcher: typeof fetch) {
@@ -216,6 +242,50 @@ export function createSkillsGatewayPort(
           label: input.label,
           ...(input.position ? { position: input.position } : {})
         })
+      });
+    },
+
+    createSkillTreeNode(input) {
+      return request("/api/v1/skills/tree/nodes", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(input)
+      });
+    },
+
+    updateSkillTreeNode(input) {
+      return request(`/api/v1/skills/tree/nodes/${input.nodeId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          ...(input.label !== undefined ? { label: input.label } : {}),
+          ...(input.description !== undefined ? { description: input.description } : {}),
+          ...(input.tag !== undefined ? { tag: input.tag } : {}),
+          ...(input.color !== undefined ? { color: input.color } : {})
+        })
+      });
+    },
+
+    reorderSkillTreeNode(input) {
+      return request(`/api/v1/skills/tree/nodes/${input.nodeId}/reorder`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          ...(input.parentNodeId ? { parentNodeId: input.parentNodeId } : {}),
+          targetIndex: input.targetIndex
+        })
+      });
+    },
+
+    deleteSkillTreeNode(nodeId) {
+      return request(`/api/v1/skills/tree/nodes/${nodeId}`, {
+        method: "DELETE"
       });
     }
   };

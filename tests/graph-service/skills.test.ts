@@ -344,4 +344,266 @@ describe("graph-service skill routes", () => {
       skillId: "skl_event_architecture"
     });
   });
+
+  it("creates a nested skill-tree node with editable metadata", async () => {
+    const { baseUrl } = await startServer();
+
+    const response = await fetch(`${baseUrl}/v1/skills/tree/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "API Design",
+        description: "Design APIs with long-lived contracts.",
+        tag: "technical",
+        color: "#4f46e5",
+        parentNodeId: "nod_skill_event_architecture"
+      })
+    });
+    const payload = await readJson<{
+      skill: Skill;
+      skillNode: GraphNode;
+    }>(response);
+
+    expect(response.status).toBe(201);
+    expect(payload.skill.canonicalLabel).toBe("API Design");
+    expect(payload.skill.description).toBe("Design APIs with long-lived contracts.");
+    expect(payload.skill.metadata).toMatchObject({
+      tag: "technical",
+      color: "#4f46e5"
+    });
+    expect(payload.skillNode.role).toBe("skill");
+    expect(payload.skillNode.parentNodeId).toBe("nod_skill_event_architecture");
+    expect(payload.skillNode.description).toBe("Design APIs with long-lived contracts.");
+    expect(payload.skillNode.metadata).toMatchObject({
+      tag: "technical",
+      color: "#4f46e5"
+    });
+
+    const inventoryResponse = await fetch(`${baseUrl}/v1/skills`);
+    const inventoryPayload = await readJson<{
+      skillGraph: {
+        edges: Array<{
+          kind: string;
+          sourceNodeId: string;
+          targetNodeId: string;
+        }>;
+      };
+    }>(inventoryResponse);
+
+    expect(
+      inventoryPayload.skillGraph.edges.some(
+        (edge) =>
+          edge.kind === "contains" &&
+          edge.sourceNodeId === "nod_skill_event_architecture" &&
+          edge.targetNodeId === payload.skillNode.id
+      )
+    ).toBe(true);
+  });
+
+  it("updates an existing skill-tree node and propagates label and metadata", async () => {
+    const { baseUrl } = await startServer();
+
+    const createResponse = await fetch(`${baseUrl}/v1/skills/tree/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "API Design",
+        description: "Design APIs with long-lived contracts.",
+        tag: "technical",
+        color: "#4f46e5"
+      })
+    });
+    const createPayload = await readJson<{
+      skill: Skill;
+      skillNode: GraphNode;
+    }>(createResponse);
+
+    const response = await fetch(
+      `${baseUrl}/v1/skills/tree/nodes/${createPayload.skillNode.id}`,
+      {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          label: "Platform API Design",
+          description: "Design internal and public APIs.",
+          tag: "platform",
+          color: "#10b981"
+        })
+      }
+    );
+    const payload = await readJson<{
+      skill: Skill;
+      skillNode: GraphNode;
+    }>(response);
+
+    expect(response.status).toBe(200);
+    expect(payload.skill.canonicalLabel).toBe("Platform API Design");
+    expect(payload.skill.normalizedLabel).toBe("platform-api-design");
+    expect(payload.skill.description).toBe("Design internal and public APIs.");
+    expect(payload.skill.metadata).toMatchObject({
+      tag: "platform",
+      color: "#10b981"
+    });
+    expect(payload.skillNode.label).toBe("Platform API Design");
+    expect(payload.skillNode.normalizedLabel).toBe("platform-api-design");
+    expect(payload.skillNode.description).toBe("Design internal and public APIs.");
+    expect(payload.skillNode.metadata).toMatchObject({
+      tag: "platform",
+      color: "#10b981"
+    });
+  });
+
+  it("reorders sibling skills within the same parent", async () => {
+    const { baseUrl } = await startServer();
+
+    const firstCreateResponse = await fetch(`${baseUrl}/v1/skills/tree/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "Backend",
+        parentNodeId: "nod_skill_event_architecture"
+      })
+    });
+    const firstCreatePayload = await readJson<{
+      skillNode: GraphNode;
+    }>(firstCreateResponse);
+
+    const secondCreateResponse = await fetch(`${baseUrl}/v1/skills/tree/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "Integration Testing",
+        parentNodeId: "nod_skill_event_architecture"
+      })
+    });
+    const secondCreatePayload = await readJson<{
+      skillNode: GraphNode;
+    }>(secondCreateResponse);
+
+    const response = await fetch(
+      `${baseUrl}/v1/skills/tree/nodes/${secondCreatePayload.skillNode.id}/reorder`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          parentNodeId: "nod_skill_event_architecture",
+          targetIndex: 0
+        })
+      }
+    );
+    const payload = await readJson<{
+      reorderedNode: GraphNode;
+      siblings: GraphNode[];
+    }>(response);
+
+    expect(response.status).toBe(200);
+    expect(payload.reorderedNode.id).toBe(secondCreatePayload.skillNode.id);
+    expect(
+      payload.siblings
+        .filter((node) => node.role === "skill")
+        .map((node) => node.id)
+    ).toEqual([
+      secondCreatePayload.skillNode.id,
+      firstCreatePayload.skillNode.id
+    ]);
+    expect(
+      payload.siblings.find((node) => node.id === secondCreatePayload.skillNode.id)?.metadata
+    ).toMatchObject({
+      sortOrder: 0
+    });
+    expect(
+      payload.siblings.find((node) => node.id === firstCreatePayload.skillNode.id)?.metadata
+    ).toMatchObject({
+      sortOrder: 2
+    });
+  });
+
+  it("deletes a nested skill-tree node and its descendant subtree", async () => {
+    const { baseUrl } = await startServer();
+
+    const parentResponse = await fetch(`${baseUrl}/v1/skills/tree/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "Backend"
+      })
+    });
+    const parentPayload = await readJson<{
+      skill: Skill;
+      skillNode: GraphNode;
+    }>(parentResponse);
+
+    const childResponse = await fetch(`${baseUrl}/v1/skills/tree/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "Database Design",
+        parentNodeId: parentPayload.skillNode.id
+      })
+    });
+    const childPayload = await readJson<{
+      skill: Skill;
+      skillNode: GraphNode;
+    }>(childResponse);
+
+    const response = await fetch(
+      `${baseUrl}/v1/skills/tree/nodes/${parentPayload.skillNode.id}`,
+      {
+        method: "DELETE"
+      }
+    );
+    const payload = await readJson<{
+      deletedNodeIds: string[];
+      deletedSkillIds: string[];
+    }>(response);
+
+    expect(response.status).toBe(200);
+    expect(payload.deletedNodeIds).toEqual(
+      expect.arrayContaining([parentPayload.skillNode.id, childPayload.skillNode.id])
+    );
+    expect(payload.deletedSkillIds).toEqual(
+      expect.arrayContaining([parentPayload.skill.id, childPayload.skill.id])
+    );
+
+    const inventoryResponse = await fetch(`${baseUrl}/v1/skills`);
+    const inventoryPayload = await readJson<{
+      inventory: Array<{
+        skillId: string;
+      }>;
+      skillGraph: {
+        nodes: Array<{
+          id: string;
+        }>;
+      };
+    }>(inventoryResponse);
+
+    expect(
+      inventoryPayload.inventory.some((entry) => entry.skillId === parentPayload.skill.id)
+    ).toBe(false);
+    expect(
+      inventoryPayload.inventory.some((entry) => entry.skillId === childPayload.skill.id)
+    ).toBe(false);
+    expect(
+      inventoryPayload.skillGraph.nodes.some((node) => node.id === parentPayload.skillNode.id)
+    ).toBe(false);
+    expect(
+      inventoryPayload.skillGraph.nodes.some((node) => node.id === childPayload.skillNode.id)
+    ).toBe(false);
+  });
 });

@@ -90,12 +90,12 @@ describe("shell pages", () => {
   });
 
   it.each([
-    ["brainstorm", "Brainstorm workspace", "Tracking"],
-    ["skills", "Skill tree", "Tracking"],
-    ["tracker", "Tracker workspace", "Skill tree"]
+    ["brainstorm", "Brainstorm workspace", "Brainstorm module"],
+    ["skills", "Skill tree", "Skill tree"],
+    ["tracker", "Tracker workspace", "Tracking"]
   ] satisfies Array<[ShellPageId, string, string]>)(
     "renders %s as a separate page",
-    (pageId, expectedHeading, unexpectedHeading) => {
+    (pageId, expectedHeading, expectedModuleCopy) => {
       const markup = renderToStaticMarkup(
         createElement(AppShell, {
           gatewayState: createGatewayState(),
@@ -104,11 +104,18 @@ describe("shell pages", () => {
       );
 
       expect(markup).toContain(expectedHeading);
-      expect(markup).not.toContain(unexpectedHeading);
-      expect(markup).toContain("PDP Helper");
+      expect(markup).toContain(expectedModuleCopy);
       expect(markup).toContain("#/brainstorm");
       expect(markup).toContain("#/skills");
       expect(markup).toContain("#/tracker");
+
+      if (pageId === "skills") {
+        expect(markup).not.toContain("PDP Helper");
+        expect(markup).not.toContain("Separate workspaces for mind-mapping");
+        expect(markup).not.toContain("Workspace");
+      } else {
+        expect(markup).toContain("PDP Helper");
+      }
     }
   );
 });

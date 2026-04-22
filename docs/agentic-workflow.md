@@ -13,7 +13,9 @@
 3. Work TDD-style by writing or updating the narrowest failing test that captures the expected behavior first.
 4. Implement the smallest change that makes the test pass while staying inside the owned boundary.
 5. Run the narrowest useful verification first, then the broader repo checks when the change crosses boundaries.
-6. Update architecture and guide docs in the same change whenever behavior, boundaries, dependencies, or public interfaces move.
+6. If the local Docker demo stack is running, run `pnpm demo:refresh` after the checks are green so the live app matches the verified code.
+7. Update architecture and guide docs in the same change whenever behavior, boundaries, dependencies, or public interfaces move.
+8. Commit the coherent slice once the checks and documentation updates are done; do not leave completed work uncommitted.
 
 ## Parallel branch policy
 - Every parallel agent task should use its own Git branch.
@@ -50,5 +52,7 @@
 - Tests added or updated first when feasible.
 - Regression coverage added or updated for any bug fix or behavior correction.
 - Implementation passes local verification.
+- The running local demo is refreshed after verification when the Docker stack is active.
 - Architecture and interface docs reflect the new reality.
 - The change stays within the declared ownership boundary or explicitly updates the boundary docs.
+- The completed slice is committed so later work starts from a clean checkpoint.

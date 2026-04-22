@@ -29,6 +29,8 @@
     "test:deps": "node tools/check-dependencies.mjs",
     "test:e2e": "echo \"No end-to-end suite is wired yet.\"",
     "lint": "eslint . && pnpm test:deps",
+    "demo:refresh": "./tools/refresh-demo.sh",
+    "verify:live": "pnpm test && pnpm lint && pnpm typecheck && pnpm demo:refresh",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "nx:graph": "nx graph"

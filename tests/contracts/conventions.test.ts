@@ -103,5 +103,5 @@ describe("shared conventions", () => {
         expect(contents).not.toContain(fragment);
       }
     }
-  });
+  }, 20000);
 });

@@ -214,7 +214,6 @@ function ShellPageContent({
   readonly error: string | null;
 }) {
   const brainstormModule = getModule(modules, "brainstorm");
-  const skillsModule = getModule(modules, "skill-graph");
   const plannerModule = getModule(modules, "planner");
   const trackerModule = getModule(modules, "tracker");
   const recommendationsModule = getModule(modules, "recommendations");
@@ -225,7 +224,7 @@ function ShellPageContent({
     case "brainstorm":
       return <BrainstormSpotlight module={brainstormModule} gatewayBaseUrl={gatewayUrl} />;
     case "skills":
-      return <SkillsSpotlight module={skillsModule} gatewayBaseUrl={gatewayUrl} />;
+      return <SkillsSpotlight gatewayBaseUrl={gatewayUrl} />;
     case "planner":
       return <PlannerSpotlight module={plannerModule} />;
     case "tracker":
@@ -257,85 +256,125 @@ export function AppShell({ gatewayState, initialPath }: AppShellProps) {
   const { pageId, navigate } = useShellPage(initialPath);
   const navigation = useMemo(() => buildShellPageNavigation(modules), [modules]);
   const activePage = getShellPage(pageId);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const showStageActions = pageId !== "skills";
+  const useMinimalShell = pageId === "skills";
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pageId]);
 
   return (
-    <main className="app-shell">
-      <header className="app-shell__topbar">
-        <div>
-          <p className="eyebrow">PDP Helper</p>
-          <h1 className="app-shell__title">Professional development planner</h1>
-        </div>
-        <div className="topbar-status">
-          <span className={`status-badge status-badge--${loading ? "unknown" : "up"}`}>
-            {loading ? "Loading" : "Live"}
-          </span>
-          <p className="topbar-status__copy">
-            Separate workspaces for mind-mapping, skill structure, planning, and
-            tracking.
-          </p>
-        </div>
-      </header>
+    <main
+      className={
+        useMinimalShell ? "app-shell app-shell--minimal-route" : "app-shell"
+      }
+    >
+      {!useMinimalShell ? (
+        <header className="app-shell__topbar">
+          <div>
+            <p className="eyebrow">PDP Helper</p>
+            <h1 className="app-shell__title">Professional development planner</h1>
+          </div>
+          <div className="topbar-status">
+            <span className={`status-badge status-badge--${loading ? "unknown" : "up"}`}>
+              {loading ? "Loading" : "Live"}
+            </span>
+            <p className="topbar-status__copy">
+              Separate workspaces for mind-mapping, skill structure, planning, and
+              tracking.
+            </p>
+          </div>
+        </header>
+      ) : null}
+
+      <button
+        type="button"
+        className={
+          sidebarOpen
+            ? "app-shell__menu-button app-shell__menu-button--open"
+            : "app-shell__menu-button"
+        }
+        onClick={() => setSidebarOpen((current) => !current)}
+        aria-expanded={sidebarOpen}
+        aria-label={sidebarOpen ? "Close navigation" : "Open navigation"}
+      >
+        <span />
+        <span />
+        <span />
+      </button>
+
+      {sidebarOpen ? (
+        <button
+          type="button"
+          className="shell-sidebar__scrim"
+          aria-label="Close navigation"
+          onClick={() => setSidebarOpen(false)}
+        />
+      ) : null}
 
       <div className="app-shell__layout">
-        <aside className="shell-sidebar panel">
-          <div className="shell-sidebar__section">
-            <p className="section-kicker">Navigate</p>
-            <nav className="shell-nav" aria-label="Primary">
-              {navigation.map((item) => (
-                <a
-                  key={item.id}
-                  href={item.href}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    navigate(item.id);
-                  }}
-                  className={
-                    item.id === pageId
-                      ? "shell-nav__link shell-nav__link--active"
-                      : "shell-nav__link"
-                  }
-                  aria-current={item.id === pageId ? "page" : undefined}
-                >
-                  <span>{item.label}</span>
-                  <span className={`status-dot status-dot--${item.status}`} />
-                </a>
-              ))}
-            </nav>
-          </div>
-
-          <div className="shell-sidebar__section shell-sidebar__section--quiet">
-            <p className="section-kicker">Current page</p>
-            <h2>{activePage.title}</h2>
-            <p>{activePage.description}</p>
-          </div>
+        <aside
+          className={
+            sidebarOpen
+              ? "shell-sidebar panel shell-sidebar--drawer shell-sidebar--open"
+              : "shell-sidebar panel shell-sidebar--drawer"
+          }
+        >
+          <nav className="shell-nav" aria-label="Primary">
+            {navigation.map((item) => (
+              <a
+                key={item.id}
+                href={item.href}
+                onClick={(event) => {
+                  event.preventDefault();
+                  navigate(item.id);
+                }}
+                className={
+                  item.id === pageId
+                    ? "shell-nav__link shell-nav__link--active"
+                    : "shell-nav__link"
+                }
+                aria-current={item.id === pageId ? "page" : undefined}
+                title={item.label}
+              >
+                <span className="shell-nav__label">{item.label}</span>
+                <span className={`status-dot status-dot--${item.status}`} />
+              </a>
+            ))}
+          </nav>
         </aside>
 
         <section className="page-stage">
-          <header className="page-stage__header panel">
-            <div>
-              <p className="section-kicker">Workspace</p>
-              <h2>{activePage.title}</h2>
-              <p>{activePage.description}</p>
-            </div>
-            <div className="page-stage__actions">
-              {navigation
-                .filter((item) => item.primary && item.id !== pageId)
-                .slice(0, 3)
-                .map((item) => (
-                  <a
-                    key={item.id}
-                    href={item.href}
-                    className="page-chip"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      navigate(item.id);
-                    }}
-                  >
-                    {item.label}
-                  </a>
-                ))}
-            </div>
-          </header>
+          {!useMinimalShell ? (
+            <header className="page-stage__header panel">
+              <div>
+                <p className="section-kicker">Workspace</p>
+                <h2>{activePage.title}</h2>
+                <p>{activePage.description}</p>
+              </div>
+              {showStageActions ? (
+                <div className="page-stage__actions">
+                  {navigation
+                    .filter((item) => item.primary && item.id !== pageId)
+                    .slice(0, 3)
+                    .map((item) => (
+                      <a
+                        key={item.id}
+                        href={item.href}
+                        className="page-chip"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          navigate(item.id);
+                        }}
+                      >
+                        {item.label}
+                      </a>
+                    ))}
+                </div>
+              ) : null}
+            </header>
+          ) : null}
 
           <div className="page-stage__content">
             <ShellPageContent

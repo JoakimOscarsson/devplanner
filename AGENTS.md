@@ -17,8 +17,10 @@
 - Work TDD-style by writing or updating the smallest failing test that captures the desired behavior first.
 - Implement the smallest change that satisfies the test while staying inside the owned module boundary.
 - Run the narrowest relevant verification during development, then run broader checks before finishing.
+- If the local Docker demo stack is in use, finish by running `pnpm demo:refresh` after the checks are green so a browser refresh shows the latest code.
 - Add or update regression coverage whenever a bug is fixed or a behavior changes in a way that could silently break existing flows.
 - Update architecture and guide documents in the same change when responsibilities, interfaces, dependencies, or data ownership shift.
+- Commit each coherent change after its checks are green. Do not let multiple finished slices pile up uncommitted in the working tree.
 
 ## Coordination rules
 - One agent task should stay inside one owned module boundary whenever possible.

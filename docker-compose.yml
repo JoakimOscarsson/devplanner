@@ -170,7 +170,7 @@ services:
     volumes:
       - .:/workspace
       - workspace-node-modules:/workspace/node_modules
-    command: sh -c "corepack enable && pnpm --filter @pdp-helper/web dev -- --host 0.0.0.0"
+    command: sh -c "corepack enable && pnpm --filter @pdp-helper/web exec vite --host 0.0.0.0 --port 5173"
     environment:
       CI: "true"
       VITE_GATEWAY_URL: http://localhost:4000

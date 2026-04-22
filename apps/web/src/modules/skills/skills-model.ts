@@ -1,10 +1,5 @@
-import { toGraphCanvasViewModel } from "@pdp-helper/ui-graph";
-import type {
-  DuplicateSkillCheckResult,
-  PromotionCandidate,
-  SkillInventoryEntry,
-  SkillsSnapshot
-} from "./skills-gateway";
+import type { GraphEdge, GraphNode, Skill } from "@pdp-helper/contracts-graph";
+import type { SkillInventoryEntry, SkillsSnapshot } from "./skills-gateway";
 
 export type { SkillsSnapshot } from "./skills-gateway";
 
@@ -14,47 +9,44 @@ export interface SkillsInventorySummaryModel {
   readonly totalSkillGraphNodes: number;
 }
 
-export interface SkillsInventoryEntryModel {
-  readonly skillId: string;
-  readonly canonicalLabel: string;
-  readonly sourceSummary: string;
-  readonly referenceSummary: string;
-}
-
-export interface PromotionCandidateModel {
-  readonly nodeId: string;
+export interface SkillTreeNodeModel {
+  readonly id: string;
   readonly label: string;
-  readonly category: string;
-  readonly locationSummary: string;
-}
-
-export interface DuplicateCandidateModel {
-  readonly skillId: string;
-  readonly canonicalLabel: string;
-  readonly summary: string;
-  readonly strategy:
-    | "use-existing-canonical"
-    | "create-reference-to-existing";
-}
-
-export interface SkillsDuplicateSummaryModel {
-  readonly queryLabel: string;
-  readonly normalizedLabel: string;
-  readonly strategyLabel: string;
-  readonly guidance: string;
-  readonly exactMatch: boolean;
-  readonly candidateLabels: readonly string[];
-  readonly candidateSummaries: readonly string[];
-  readonly candidateModels: readonly DuplicateCandidateModel[];
+  readonly kind: "skill" | "reference";
+  readonly skillId?: Skill["id"];
+  readonly parentId?: GraphNode["id"];
+  readonly description?: string;
+  readonly tag?: string;
+  readonly color?: string;
+  readonly sortOrder: number;
+  readonly meta: string;
+  readonly children: readonly SkillTreeNodeModel[];
 }
 
 export interface SkillsPanelModel {
   readonly inventorySummary: SkillsInventorySummaryModel;
-  readonly inventoryEntries: readonly SkillsInventoryEntryModel[];
-  readonly promotionCandidates: readonly PromotionCandidateModel[];
-  readonly duplicateSummary: SkillsDuplicateSummaryModel | null;
-  readonly skillGraphView: ReturnType<typeof toGraphCanvasViewModel> | null;
+  readonly treeRoots: readonly SkillTreeNodeModel[];
+  readonly hiddenFeatureNotes: readonly string[];
 }
+
+export interface VisibleSkillTreeRowModel {
+  readonly id: string;
+  readonly depth: number;
+  readonly hasChildren: boolean;
+  readonly parentId?: string;
+  readonly node: SkillTreeNodeModel;
+}
+
+export type SkillTreeHotkeyAction =
+  | "select-previous"
+  | "select-next"
+  | "expand"
+  | "collapse"
+  | "edit"
+  | "delete"
+  | "create-child"
+  | "create-sibling"
+  | "cancel";
 
 export const EMPTY_SKILLS_SNAPSHOT: SkillsSnapshot = {
   inventory: [],
@@ -66,107 +58,306 @@ export const EMPTY_SKILLS_SNAPSHOT: SkillsSnapshot = {
   promotionCandidates: []
 };
 
+export const TEMPORARILY_HIDDEN_SKILLTREE_FEATURES = [
+  "Create a reference to an existing canonical skill from this page",
+  "Show reference nodes inline in the tree",
+  "Resolve duplicate canonical skills from the tree",
+  "Review brainstorm promotion candidates from the skill tree page",
+  "Bulk actions such as multi-select, batch tagging, or batch reorder",
+  "Skill rating, gap, and tag filters"
+] as const;
+
+export const SKILL_TREE_DEPTH_LIMIT = 50;
+
 function compareInventory(left: SkillInventoryEntry, right: SkillInventoryEntry) {
   return left.canonicalLabel.localeCompare(right.canonicalLabel);
 }
 
-function comparePromotionCandidates(left: PromotionCandidate, right: PromotionCandidate) {
-  const labelDifference = left.label.localeCompare(right.label);
-
-  if (labelDifference !== 0) {
-    return labelDifference;
-  }
-
-  return left.canvasName.localeCompare(right.canvasName);
+function readSkillIdFromNode(node: GraphNode) {
+  const value = node.metadata?.skillId;
+  return typeof value === "string" ? (value as Skill["id"]) : undefined;
 }
 
-function getStrategyLabel(result: DuplicateSkillCheckResult) {
-  switch (result.suggestedStrategy) {
-    case "create-reference-to-existing":
-      return "Use the existing canonical skill and create a reference node.";
-    case "use-existing-canonical":
-      return "Review the existing canonical skill before creating anything new.";
-    default:
-      return "Create a new canonical skill.";
+function readStringMetadata(node: GraphNode, key: string) {
+  const value = node.metadata?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readNumberMetadata(node: GraphNode, key: string) {
+  const value = node.metadata?.[key];
+  return typeof value === "number" ? value : undefined;
+}
+
+function compareGraphNodes(left: GraphNode, right: GraphNode) {
+  const orderDifference =
+    (readNumberMetadata(left, "sortOrder") ?? Number.MAX_SAFE_INTEGER) -
+    (readNumberMetadata(right, "sortOrder") ?? Number.MAX_SAFE_INTEGER);
+
+  if (orderDifference !== 0) {
+    return orderDifference;
   }
+
+  if (left.role !== right.role) {
+    const roleOrder = {
+      skill: 0,
+      reference: 1
+    } as const;
+
+    return roleOrder[left.role as "skill" | "reference"] -
+      roleOrder[right.role as "skill" | "reference"];
+  }
+
+  return left.label.localeCompare(right.label);
+}
+
+function isSkillTreeNode(node: GraphNode) {
+  if (node.category !== "skill") {
+    return false;
+  }
+
+  return node.role === "skill" || node.role === "reference";
+}
+
+function isSkillNode(node: GraphNode) {
+  return node.role === "skill" && node.category === "skill";
+}
+
+function buildEdgeChildrenMap(edges: readonly GraphEdge[]) {
+  const map = new Map<GraphNode["id"], GraphNode["id"][]>();
+
+  for (const edge of edges) {
+    const current = map.get(edge.sourceNodeId) ?? [];
+    current.push(edge.targetNodeId);
+    map.set(edge.sourceNodeId, current);
+  }
+
+  return map;
+}
+
+function createTreeNodeBase(node: GraphNode, kind: "skill" | "reference") {
+  const tag = readStringMetadata(node, "tag");
+  const meta = kind === "reference" ? "Reference" : tag ?? "Skill";
+
+  return {
+    id: node.id,
+    label: node.label,
+    kind,
+    skillId: readSkillIdFromNode(node),
+    parentId: node.parentNodeId,
+    description: node.description,
+    tag,
+    color: readStringMetadata(node, "color"),
+    sortOrder: readNumberMetadata(node, "sortOrder") ?? Number.MAX_SAFE_INTEGER,
+    meta
+  } satisfies Omit<SkillTreeNodeModel, "children">;
+}
+
+function buildSkillTreeNode(input: {
+  readonly node: GraphNode;
+  readonly allNodes: readonly GraphNode[];
+  readonly nodeById: ReadonlyMap<GraphNode["id"], GraphNode>;
+  readonly childIdsByParentId: ReadonlyMap<GraphNode["id"], readonly GraphNode["id"][]>;
+  readonly depth: number;
+  readonly lineage: ReadonlySet<GraphNode["id"]>;
+}): SkillTreeNodeModel {
+  const nextLineage = new Set(input.lineage);
+  nextLineage.add(input.node.id);
+
+  const edgeChildren = (input.childIdsByParentId.get(input.node.id) ?? [])
+    .map((childId) => input.nodeById.get(childId))
+    .filter((child): child is GraphNode => Boolean(child))
+    .filter(isSkillNode)
+    .filter((child) => !nextLineage.has(child.id))
+    .sort(compareGraphNodes);
+
+  const children =
+    input.depth >= SKILL_TREE_DEPTH_LIMIT
+      ? []
+      : edgeChildren.map((child) =>
+          buildSkillTreeNode({
+            node: child,
+            allNodes: input.allNodes,
+            nodeById: input.nodeById,
+            childIdsByParentId: input.childIdsByParentId,
+            depth: input.depth + 1,
+            lineage: nextLineage
+          })
+        );
+
+  return {
+    ...createTreeNodeBase(input.node, "skill"),
+    children
+  };
+}
+
+function filterTreeByQuery(
+  nodes: readonly SkillTreeNodeModel[],
+  query: string
+): SkillTreeNodeModel[] {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (normalizedQuery.length === 0) {
+    return [...nodes];
+  }
+
+  return nodes.flatMap((node) => {
+    const filteredChildren = filterTreeByQuery(node.children, normalizedQuery);
+    const matchesNode = [node.label, node.description, node.tag]
+      .filter((value): value is string => typeof value === "string")
+      .some((value) => value.toLowerCase().includes(normalizedQuery));
+
+    if (!matchesNode && filteredChildren.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        ...node,
+        children: filteredChildren
+      }
+    ];
+  });
+}
+
+function flattenSkillTreeNodes(
+  nodes: readonly SkillTreeNodeModel[],
+  expandedIds: ReadonlySet<string>,
+  depth: number,
+  rows: VisibleSkillTreeRowModel[],
+  alwaysExpand: boolean
+) {
+  for (const node of nodes) {
+    const hasChildren = node.children.length > 0;
+    rows.push({
+      id: node.id,
+      depth,
+      hasChildren,
+      parentId: node.parentId,
+      node
+    });
+
+    if (hasChildren && (alwaysExpand || expandedIds.has(node.id))) {
+      flattenSkillTreeNodes(node.children, expandedIds, depth + 1, rows, alwaysExpand);
+    }
+  }
+}
+
+export function flattenVisibleSkillTree(
+  treeRoots: readonly SkillTreeNodeModel[],
+  expandedIds: ReadonlySet<string>,
+  query = ""
+) {
+  const filteredRoots = filterTreeByQuery(treeRoots, query);
+  const rows: VisibleSkillTreeRowModel[] = [];
+  const alwaysExpand = query.trim().length > 0;
+
+  flattenSkillTreeNodes(filteredRoots, expandedIds, 0, rows, alwaysExpand);
+
+  return rows;
+}
+
+export function interpretSkillTreeHotkey(input: {
+  readonly key: string;
+  readonly targetTagName?: string | null;
+  readonly metaKey?: boolean;
+  readonly ctrlKey?: boolean;
+  readonly altKey?: boolean;
+}) {
+  const tagName = input.targetTagName?.toLowerCase();
+
+  if (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    input.metaKey ||
+    input.ctrlKey ||
+    input.altKey
+  ) {
+    return null;
+  }
+
+  switch (input.key) {
+    case "ArrowUp":
+      return "select-previous";
+    case "ArrowDown":
+      return "select-next";
+    case "ArrowRight":
+      return "expand";
+    case "ArrowLeft":
+      return "collapse";
+    case "Enter":
+      return "edit";
+    case "Delete":
+    case "Backspace":
+      return "delete";
+    case "c":
+    case "C":
+      return "create-child";
+    case "a":
+    case "A":
+      return "create-sibling";
+    case "Escape":
+      return "cancel";
+    default:
+      return null;
+  }
+}
+
+export function moveSkillTreeSelection(
+  rows: readonly VisibleSkillTreeRowModel[],
+  selectedId: string | null,
+  direction: -1 | 1
+) {
+  if (rows.length === 0) {
+    return null;
+  }
+
+  if (!selectedId) {
+    return rows[0]!.id;
+  }
+
+  const currentIndex = rows.findIndex((row) => row.id === selectedId);
+
+  if (currentIndex === -1) {
+    return rows[0]!.id;
+  }
+
+  const nextIndex = Math.max(0, Math.min(rows.length - 1, currentIndex + direction));
+  return rows[nextIndex]!.id;
 }
 
 export function buildSkillsPanelModel(snapshot: SkillsSnapshot): SkillsPanelModel {
-  const inventoryEntries = [...snapshot.inventory]
-    .sort(compareInventory)
-    .map((entry) => ({
-      skillId: entry.skillId,
-      canonicalLabel: entry.canonicalLabel,
-      sourceSummary: entry.sourceCanvasName
-        ? `${entry.sourceCanvasName}${entry.sourceNodeLabel ? ` via ${entry.sourceNodeLabel}` : ""}`
-        : "No source node recorded",
-      referenceSummary:
-        entry.referenceCount === 1
-          ? "1 reference node"
-          : `${entry.referenceCount} reference nodes`
-    })) satisfies SkillsInventoryEntryModel[];
+  const skillGraphNodes = (snapshot.skillGraph?.nodes ?? []).filter(isSkillTreeNode);
+  const skillGraphEdges = (snapshot.skillGraph?.edges ?? []).filter((edge) =>
+    skillGraphNodes.some((node) => node.id === edge.sourceNodeId) &&
+    skillGraphNodes.some((node) => node.id === edge.targetNodeId)
+  );
+  const nodesById = new Map(skillGraphNodes.map((node) => [node.id, node] as const));
+  const childIdsByParentId = buildEdgeChildrenMap(skillGraphEdges);
+  const skillGraphRootNodes = skillGraphNodes
+    .filter(isSkillNode)
+    .filter((node) => node.parentNodeId === undefined)
+    .sort(compareGraphNodes);
 
-  const promotionCandidates = [...(snapshot.promotionCandidates ?? [])]
-    .sort(comparePromotionCandidates)
-    .map((candidate) => ({
-      nodeId: candidate.nodeId,
-      label: candidate.label,
-      category: candidate.category,
-      locationSummary: `${candidate.canvasName} • ${candidate.category}`
-    })) satisfies PromotionCandidateModel[];
-
-  const duplicateSummary = snapshot.duplicateCheck
-    ? {
-        queryLabel: snapshot.duplicateCheck.queryLabel,
-        normalizedLabel: snapshot.duplicateCheck.normalizedLabel,
-        strategyLabel: getStrategyLabel(snapshot.duplicateCheck),
-        guidance: snapshot.duplicateCheck.guidance,
-        exactMatch: snapshot.duplicateCheck.exactMatch,
-        candidateLabels: snapshot.duplicateCheck.candidates.map(
-          (candidate) => candidate.canonicalLabel
-        ),
-        candidateSummaries: snapshot.duplicateCheck.candidates.map((candidate) => {
-          const matchTone =
-            candidate.matchKind === "exact" ? "Exact match" : "Related match";
-          const sourceTone = candidate.sourceCanvasName
-            ? `from ${candidate.sourceCanvasName}`
-            : "without a recorded source canvas";
-          const referenceTone =
-            candidate.referenceCount === 1
-              ? "1 reference node"
-              : `${candidate.referenceCount} reference nodes`;
-
-          return `${matchTone}: ${candidate.canonicalLabel} ${sourceTone}, ${referenceTone}.`;
-        }),
-        candidateModels: snapshot.duplicateCheck.candidates.map((candidate) => ({
-          skillId: candidate.skillId,
-          canonicalLabel: candidate.canonicalLabel,
-          summary: candidate.sourceCanvasName
-            ? `${candidate.matchKind === "exact" ? "Exact" : "Related"} match from ${candidate.sourceCanvasName}`
-            : `${candidate.matchKind === "exact" ? "Exact" : "Related"} match`,
-          strategy:
-            candidate.matchKind === "exact"
-              ? "create-reference-to-existing"
-              : "use-existing-canonical"
-        }))
-      } satisfies SkillsDuplicateSummaryModel
-    : null;
+  const treeRoots = skillGraphRootNodes.map((node) =>
+    buildSkillTreeNode({
+      node,
+      allNodes: skillGraphNodes,
+      nodeById: nodesById,
+      childIdsByParentId,
+      depth: 1,
+      lineage: new Set()
+    })
+  );
 
   return {
     inventorySummary: {
-      totalCanonicalSkills: snapshot.summary.totalCanonicalSkills,
+      totalCanonicalSkills:
+        snapshot.summary.totalCanonicalSkills || [...snapshot.inventory].sort(compareInventory).length,
       totalReferenceNodes: snapshot.summary.totalReferenceNodes,
       totalSkillGraphNodes: snapshot.summary.totalSkillGraphNodes
     },
-    inventoryEntries,
-    promotionCandidates,
-    duplicateSummary,
-    skillGraphView: snapshot.skillGraph
-      ? toGraphCanvasViewModel({
-          mode: snapshot.skillGraph.canvas.mode,
-          nodes: snapshot.skillGraph.nodes,
-          edges: snapshot.skillGraph.edges
-        })
-      : null
+    treeRoots,
+    hiddenFeatureNotes: TEMPORARILY_HIDDEN_SKILLTREE_FEATURES
   };
 }

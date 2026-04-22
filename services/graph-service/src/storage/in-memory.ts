@@ -138,6 +138,64 @@ function getReferenceNodesForSkill(skillId: Skill["id"]) {
   );
 }
 
+function readNodeStringMetadata(node: NodeRecord, key: string) {
+  const value = node.metadata?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readNodeNumberMetadata(node: NodeRecord, key: string) {
+  const value = node.metadata?.[key];
+  return typeof value === "number" ? value : undefined;
+}
+
+function buildSkillTreeMetadata(input: {
+  readonly skillId?: Skill["id"];
+  readonly sourceNodeId?: GraphNode["id"];
+  readonly referenceNodeId?: GraphNode["id"];
+  readonly tag?: string;
+  readonly color?: string;
+  readonly sortOrder?: number;
+  readonly existing?: JsonObject;
+}) {
+  const metadata: Record<string, unknown> = {
+    ...(input.existing ?? {})
+  };
+
+  if (input.skillId) {
+    metadata.skillId = input.skillId;
+  }
+
+  if (input.sourceNodeId) {
+    metadata.sourceNodeId = input.sourceNodeId;
+  }
+
+  if (input.referenceNodeId) {
+    metadata.referenceNodeId = input.referenceNodeId;
+  }
+
+  if (input.tag !== undefined) {
+    if (input.tag.trim().length > 0) {
+      metadata.tag = input.tag.trim();
+    } else {
+      delete metadata.tag;
+    }
+  }
+
+  if (input.color !== undefined) {
+    if (input.color.trim().length > 0) {
+      metadata.color = input.color.trim();
+    } else {
+      delete metadata.color;
+    }
+  }
+
+  if (typeof input.sortOrder === "number") {
+    metadata.sortOrder = input.sortOrder;
+  }
+
+  return metadata as JsonObject;
+}
+
 function storeError<TCode extends string>(
   code: TCode,
   message: string,
@@ -210,6 +268,10 @@ function graphSeed(): GraphSeed {
         normalizedLabel: "typescript",
         position: { x: 96, y: 120 },
         source: "user",
+        metadata: {
+          skillId: "skl_typescript",
+          sortOrder: 0
+        },
         ...auditFields()
       },
       {
@@ -221,8 +283,10 @@ function graphSeed(): GraphSeed {
         normalizedLabel: "typescript-for-planning-flows",
         position: { x: 96, y: 244 },
         source: "user",
+        parentNodeId: "nod_skill_typescript" as GraphNode["id"],
         metadata: {
-          skillId: "skl_typescript"
+          skillId: "skl_typescript",
+          sortOrder: 0
         },
         ...auditFields()
       },
@@ -235,6 +299,10 @@ function graphSeed(): GraphSeed {
         normalizedLabel: "event-driven-architecture",
         position: { x: 320, y: 88 },
         source: "user",
+        metadata: {
+          skillId: "skl_event_architecture",
+          sortOrder: 1
+        },
         ...auditFields()
       },
       {
@@ -246,8 +314,10 @@ function graphSeed(): GraphSeed {
         normalizedLabel: "event-architecture-for-certification-path",
         position: { x: 320, y: 228 },
         source: "user",
+        parentNodeId: "nod_skill_event_architecture" as GraphNode["id"],
         metadata: {
-          skillId: "skl_event_architecture"
+          skillId: "skl_event_architecture",
+          sortOrder: 0
         },
         ...auditFields()
       },
@@ -270,6 +340,24 @@ function graphSeed(): GraphSeed {
         sourceNodeId: "nod_brainstorm_aws" as GraphEdge["sourceNodeId"],
         targetNodeId: "nod_brainstorm_typescript" as GraphEdge["targetNodeId"],
         kind: "depends-on",
+        ...auditFields()
+      },
+      {
+        id: "edg_skill_typescript_reference" as GraphEdge["id"],
+        canvasId: "can_skill_graph" as GraphEdge["canvasId"],
+        sourceNodeId: "nod_skill_typescript" as GraphEdge["sourceNodeId"],
+        targetNodeId:
+          "nod_reference_typescript_planner" as GraphEdge["targetNodeId"],
+        kind: "contains",
+        ...auditFields()
+      },
+      {
+        id: "edg_skill_event_architecture_reference" as GraphEdge["id"],
+        canvasId: "can_skill_graph" as GraphEdge["canvasId"],
+        sourceNodeId: "nod_skill_event_architecture" as GraphEdge["sourceNodeId"],
+        targetNodeId:
+          "nod_reference_event_architecture_cert" as GraphEdge["targetNodeId"],
+        kind: "contains",
         ...auditFields()
       }
     ] satisfies EdgeRecord[],
@@ -388,6 +476,138 @@ function getSkillGraphCanvas() {
   return canvas;
 }
 
+function isSkillTreeNode(node: NodeRecord) {
+  return (
+    node.canvasId === getSkillGraphCanvas().id &&
+    node.category === "skill" &&
+    (node.role === "skill" || node.role === "reference")
+  );
+}
+
+function assertSkillTreeNode(nodeId: GraphNode["id"]) {
+  const node = assertNode(nodeId);
+
+  if (!isSkillTreeNode(node)) {
+    throw storeError("NOT_FOUND", `Skill-tree node ${nodeId} was not found.`, 404);
+  }
+
+  return node;
+}
+
+function getSkillTreeChildren(parentNodeId?: GraphNode["id"]) {
+  return graphStore.nodes
+    .filter(isSkillTreeNode)
+    .filter((node) =>
+      parentNodeId ? node.parentNodeId === parentNodeId : node.parentNodeId === undefined
+    )
+    .sort((left, right) => {
+      const sortDifference =
+        (readNodeNumberMetadata(left, "sortOrder") ?? Number.MAX_SAFE_INTEGER) -
+        (readNodeNumberMetadata(right, "sortOrder") ?? Number.MAX_SAFE_INTEGER);
+
+      if (sortDifference !== 0) {
+        return sortDifference;
+      }
+
+      if (left.role !== right.role) {
+        return left.role.localeCompare(right.role);
+      }
+
+      return left.label.localeCompare(right.label);
+    });
+}
+
+function nextSkillTreeSortOrder(parentNodeId?: GraphNode["id"]) {
+  return getSkillTreeChildren(parentNodeId).length;
+}
+
+function renumberSkillTreeSiblings(parentNodeId?: GraphNode["id"]) {
+  const siblings = getSkillTreeChildren(parentNodeId);
+  const timestamp = now();
+
+  graphStore.nodes = graphStore.nodes.map((node) => {
+    const siblingIndex = siblings.findIndex((entry) => entry.id === node.id);
+
+    if (siblingIndex === -1) {
+      return node;
+    }
+
+    return {
+      ...node,
+      metadata: buildSkillTreeMetadata({
+        existing: node.metadata,
+        sortOrder: siblingIndex
+      }),
+      updatedAt: timestamp
+    };
+  });
+
+  return getSkillTreeChildren(parentNodeId);
+}
+
+function getSkillTreeDescendantIds(nodeId: GraphNode["id"]) {
+  const descendantIds = new Set<GraphNode["id"]>();
+  const queue = [nodeId];
+
+  while (queue.length > 0) {
+    const currentNodeId = queue.shift()!;
+    const children = graphStore.nodes
+      .filter(isSkillTreeNode)
+      .filter((node) => node.parentNodeId === currentNodeId);
+
+    for (const child of children) {
+      if (descendantIds.has(child.id)) {
+        continue;
+      }
+
+      descendantIds.add(child.id);
+      queue.push(child.id);
+    }
+  }
+
+  return descendantIds;
+}
+
+function assertSkillTreeParent(nodeId: GraphNode["id"], parentNodeId: GraphNode["id"]) {
+  const parentNode = assertSkillTreeNode(parentNodeId);
+
+  if (parentNode.role !== "skill") {
+    throw storeError(
+      "VALIDATION_FAILED",
+      "Only skill nodes can be parents in the skill tree.",
+      422,
+      {
+        issues: [
+          {
+            path: "parentNodeId",
+            rule: "role",
+            message: "Only skill nodes can be parents in the skill tree."
+          }
+        ]
+      }
+    );
+  }
+
+  if (parentNodeId === nodeId || getSkillTreeDescendantIds(nodeId).has(parentNodeId)) {
+    throw storeError(
+      "VALIDATION_FAILED",
+      "A skill-tree node cannot be moved into its own subtree.",
+      422,
+      {
+        issues: [
+          {
+            path: "parentNodeId",
+            rule: "cycle",
+            message: "A skill-tree node cannot be moved into its own subtree."
+          }
+        ]
+      }
+    );
+  }
+
+  return parentNode;
+}
+
 function assertParentNode(
   canvasId: Canvas["id"],
   nodeId: GraphNode["id"],
@@ -487,14 +707,55 @@ function createSkillGraphNode(skill: SkillRecord, sourceNode: NodeRecord) {
     normalizedLabel: skill.normalizedLabel,
     position: nextSkillGraphPosition("skill"),
     source: "user",
-    metadata: {
+    metadata: buildSkillTreeMetadata({
       skillId: skill.id,
-      sourceNodeId: sourceNode.id
-    },
+      sourceNodeId: sourceNode.id,
+      sortOrder: nextSkillTreeSortOrder()
+    }),
     ...auditFields(timestamp)
   };
 
   graphStore.nodes = [...graphStore.nodes, skillNode];
+  renumberSkillTreeSiblings();
+
+  return skillNode;
+}
+
+function createSkillGraphNodeFromTreeInput(input: {
+  readonly skill: SkillRecord;
+  readonly nodeId: GraphNode["id"];
+  readonly label: string;
+  readonly description?: string;
+  readonly parentNodeId?: GraphNode["id"];
+  readonly tag?: string;
+  readonly color?: string;
+}) {
+  const timestamp = now();
+  const skillNode: NodeRecord = {
+    id: input.nodeId,
+    canvasId: getSkillGraphCanvas().id,
+    role: "skill",
+    category: "skill",
+    label: input.label.trim(),
+    normalizedLabel: normalizeLabel(input.label),
+    position: nextSkillGraphPosition("skill"),
+    source: "user",
+    ...(typeof input.description === "string" && input.description.trim().length > 0
+      ? { description: input.description.trim() }
+      : {}),
+    ...(input.parentNodeId ? { parentNodeId: input.parentNodeId } : {}),
+    metadata: buildSkillTreeMetadata({
+      skillId: input.skill.id,
+      tag: input.tag,
+      color: input.color,
+      sortOrder: nextSkillTreeSortOrder(input.parentNodeId)
+    }),
+    ...auditFields(timestamp)
+  };
+
+  graphStore.nodes = [...graphStore.nodes, skillNode];
+  replaceParentEdge(skillNode.canvasId, skillNode.id, input.parentNodeId);
+  renumberSkillTreeSiblings(input.parentNodeId);
 
   return skillNode;
 }
@@ -515,6 +776,10 @@ function createSkillReferenceNode(input: {
   }
 
   const timestamp = now();
+  const parentNodeId =
+    canvasId === getSkillGraphCanvas().id
+      ? findSkillGraphNode(input.canonicalSkill.id)?.id
+      : undefined;
   const referenceNode: NodeRecord = {
     id: buildId(ID_PREFIXES.node) as GraphNode["id"],
     canvasId,
@@ -524,15 +789,22 @@ function createSkillReferenceNode(input: {
     normalizedLabel: normalizeLabel(input.label),
     position: input.position ?? nextSkillGraphPosition("reference"),
     source: "user",
-    metadata: {
+    ...(parentNodeId ? { parentNodeId } : {}),
+    metadata: buildSkillTreeMetadata({
       skillId: input.canonicalSkill.id,
-      ...(input.sourceNodeId ? { sourceNodeId: input.sourceNodeId } : {}),
-      ...(input.referenceNodeId ? { referenceNodeId: input.referenceNodeId } : {})
-    },
+      sourceNodeId: input.sourceNodeId,
+      referenceNodeId: input.referenceNodeId,
+      sortOrder: parentNodeId ? nextSkillTreeSortOrder(parentNodeId) : undefined
+    }),
     ...auditFields(timestamp)
   };
 
   graphStore.nodes = [...graphStore.nodes, referenceNode];
+
+  if (parentNodeId) {
+    replaceParentEdge(canvasId, referenceNode.id, parentNodeId);
+    renumberSkillTreeSiblings(parentNodeId);
+  }
 
   return referenceNode;
 }
@@ -1023,5 +1295,268 @@ export function createSkillReference(
   return {
     canonicalSkill,
     referenceNode
+  };
+}
+
+export function createSkillTreeNode(input: {
+  label: string;
+  description?: string;
+  parentNodeId?: GraphNode["id"];
+  tag?: string;
+  color?: string;
+}) {
+  const normalizedLabel = normalizeLabel(input.label);
+  const duplicateCandidates = findDuplicateSkillCandidates(input.label);
+
+  if (duplicateCandidates.some((candidate) => candidate.normalizedLabel === normalizedLabel)) {
+    throw storeError(
+      "SKILL_RESOLUTION_REQUIRED",
+      "Duplicate skill resolution is required before creating this skill.",
+      409,
+      {
+        normalizedLabel,
+        candidates: duplicateCandidates.map((candidate) => ({
+          skillId: candidate.skillId,
+          canonicalLabel: candidate.canonicalLabel,
+          normalizedLabel: candidate.normalizedLabel,
+          similarityScore: candidate.similarityScore,
+          ...(candidate.sourceNodeId ? { sourceNodeId: candidate.sourceNodeId } : {})
+        }))
+      }
+    );
+  }
+
+  if (input.parentNodeId) {
+    assertSkillTreeParent(
+      `nod_pending_${crypto.randomUUID().replaceAll("-", "")}` as GraphNode["id"],
+      input.parentNodeId
+    );
+  }
+
+  const timestamp = now();
+  const skillId = buildId(ID_PREFIXES.skill) as Skill["id"];
+  const nodeId = buildId(ID_PREFIXES.node) as GraphNode["id"];
+  const skill: SkillRecord = {
+    id: skillId,
+    canonicalLabel: input.label.trim(),
+    normalizedLabel,
+    ...(typeof input.description === "string" && input.description.trim().length > 0
+      ? { description: input.description.trim() }
+      : {}),
+    sourceNodeId: nodeId,
+    metadata: buildSkillTreeMetadata({
+      tag: input.tag,
+      color: input.color
+    }),
+    ...auditFields(timestamp)
+  };
+
+  graphStore.skills = [...graphStore.skills, skill];
+  const skillNode = createSkillGraphNodeFromTreeInput({
+    skill,
+    nodeId,
+    label: input.label,
+    description: input.description,
+    parentNodeId: input.parentNodeId,
+    tag: input.tag,
+    color: input.color
+  });
+
+  return {
+    skill,
+    skillNode
+  };
+}
+
+export function updateSkillTreeNode(
+  nodeId: GraphNode["id"],
+  changes: {
+    label?: string;
+    description?: string | null;
+    tag?: string | null;
+    color?: string | null;
+  }
+) {
+  const node = assertSkillTreeNode(nodeId);
+  const nextLabel = typeof changes.label === "string" ? changes.label.trim() : node.label;
+  const nextNormalizedLabel = normalizeLabel(nextLabel);
+  const nextDescription =
+    changes.description !== undefined
+      ? changes.description?.trim() || undefined
+      : node.description;
+  const nextTag =
+    changes.tag !== undefined ? changes.tag?.trim() || undefined : readNodeStringMetadata(node, "tag");
+  const nextColor =
+    changes.color !== undefined
+      ? changes.color?.trim() || undefined
+      : readNodeStringMetadata(node, "color");
+
+  let skill: SkillRecord | undefined;
+
+  if (node.role === "skill") {
+    const skillId = readNodeStringMetadata(node, "skillId") as Skill["id"];
+    const linkedSkill = assertSkill(skillId);
+    const duplicateCandidates = graphStore.skills.filter(
+      (entry) => entry.id !== linkedSkill.id && entry.normalizedLabel === nextNormalizedLabel
+    );
+
+    if (duplicateCandidates.length > 0) {
+      throw storeError(
+        "SKILL_RESOLUTION_REQUIRED",
+        "Duplicate skill resolution is required before renaming this skill.",
+        409,
+        {
+          normalizedLabel: nextNormalizedLabel,
+          candidates: duplicateCandidates.map((candidate) => ({
+            skillId: candidate.id,
+            canonicalLabel: candidate.canonicalLabel,
+            normalizedLabel: candidate.normalizedLabel
+          }))
+        }
+      );
+    }
+
+    graphStore.skills = graphStore.skills.map((entry) =>
+      entry.id === linkedSkill.id
+        ? {
+            ...entry,
+            canonicalLabel: nextLabel,
+            normalizedLabel: nextNormalizedLabel,
+            description: nextDescription,
+            metadata: buildSkillTreeMetadata({
+              existing: entry.metadata,
+              tag: nextTag,
+              color: nextColor
+            }),
+            updatedAt: now()
+          }
+        : entry
+    );
+    skill = assertSkill(linkedSkill.id);
+  }
+
+  const updatedNode: NodeRecord = {
+    ...node,
+    label: nextLabel,
+    normalizedLabel: nextNormalizedLabel,
+    description: nextDescription,
+    metadata: buildSkillTreeMetadata({
+      existing: node.metadata,
+      tag: nextTag,
+      color: nextColor,
+      sortOrder: readNodeNumberMetadata(node, "sortOrder") ?? 0
+    }),
+    updatedAt: now()
+  };
+
+  graphStore.nodes = graphStore.nodes.map((entry) =>
+    entry.id === nodeId ? updatedNode : entry
+  );
+
+  return {
+    ...(skill ? { skill } : {}),
+    skillNode: updatedNode
+  };
+}
+
+export function reorderSkillTreeNode(
+  nodeId: GraphNode["id"],
+  input: {
+    parentNodeId?: GraphNode["id"];
+    targetIndex: number;
+  }
+) {
+  const node = assertSkillTreeNode(nodeId);
+  const previousParentNodeId = node.parentNodeId;
+  const nextParentNodeId = input.parentNodeId;
+
+  if (nextParentNodeId) {
+    assertSkillTreeParent(nodeId, nextParentNodeId);
+  }
+
+  const siblingsWithoutNode = getSkillTreeChildren(nextParentNodeId).filter(
+    (entry) => entry.id !== nodeId
+  );
+  const insertionIndex = clampSortOrder(input.targetIndex, siblingsWithoutNode.length);
+  const orderedSiblingIds = [
+    ...siblingsWithoutNode.slice(0, insertionIndex).map((entry) => entry.id),
+    nodeId,
+    ...siblingsWithoutNode.slice(insertionIndex).map((entry) => entry.id)
+  ];
+  const timestamp = now();
+
+  graphStore.nodes = graphStore.nodes.map((entry) => {
+    const siblingIndex = orderedSiblingIds.indexOf(entry.id);
+
+    if (siblingIndex === -1) {
+      return entry;
+    }
+
+    return {
+      ...entry,
+      ...(entry.id === nodeId
+        ? {
+            parentNodeId: nextParentNodeId,
+            position: nextSkillGraphPosition(
+              entry.role === "reference" ? "reference" : "skill"
+            )
+          }
+        : {}),
+      metadata: buildSkillTreeMetadata({
+        existing: entry.metadata,
+        sortOrder: siblingIndex
+      }),
+      updatedAt: timestamp
+    };
+  });
+
+  replaceParentEdge(getSkillGraphCanvas().id, nodeId, nextParentNodeId);
+
+  if (previousParentNodeId !== nextParentNodeId) {
+    renumberSkillTreeSiblings(previousParentNodeId);
+  }
+
+  return {
+    reorderedNode: assertSkillTreeNode(nodeId),
+    siblings: renumberSkillTreeSiblings(nextParentNodeId)
+  };
+}
+
+export function deleteSkillTreeNode(nodeId: GraphNode["id"]) {
+  const rootNode = assertSkillTreeNode(nodeId);
+  const deletedNodeIds = new Set<GraphNode["id"]>([
+    rootNode.id,
+    ...getSkillTreeDescendantIds(rootNode.id)
+  ]);
+  const deletedSkillIds = new Set<Skill["id"]>();
+
+  for (const currentNodeId of deletedNodeIds) {
+    const currentNode = graphStore.nodes.find((entry) => entry.id === currentNodeId);
+    const skillId = currentNode ? readNodeStringMetadata(currentNode, "skillId") : undefined;
+
+    if (currentNode?.role === "skill" && skillId) {
+      deletedSkillIds.add(skillId as Skill["id"]);
+    }
+  }
+
+  for (const node of graphStore.nodes.filter(isSkillTreeNode)) {
+    const skillId = readNodeStringMetadata(node, "skillId");
+
+    if (node.role === "reference" && skillId && deletedSkillIds.has(skillId as Skill["id"])) {
+      deletedNodeIds.add(node.id);
+    }
+  }
+
+  graphStore.nodes = graphStore.nodes.filter((node) => !deletedNodeIds.has(node.id));
+  graphStore.edges = graphStore.edges.filter(
+    (edge) => !deletedNodeIds.has(edge.sourceNodeId) && !deletedNodeIds.has(edge.targetNodeId)
+  );
+  graphStore.skills = graphStore.skills.filter((skill) => !deletedSkillIds.has(skill.id));
+
+  renumberSkillTreeSiblings(rootNode.parentNodeId);
+
+  return {
+    deletedNodeIds: [...deletedNodeIds],
+    deletedSkillIds: [...deletedSkillIds]
   };
 }

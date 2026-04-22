@@ -11,10 +11,14 @@ import type { RouteDefinition } from "@pdp-helper/runtime-node";
 import { createDomainError, json, readBody } from "@pdp-helper/runtime-node";
 import {
   checkDuplicateSkill,
+  createSkillTreeNode,
   createSkillReference,
+  deleteSkillTreeNode,
   getSkillInventorySnapshot,
   promoteNodeToSkill,
-  resolveDuplicateSkill
+  reorderSkillTreeNode,
+  resolveDuplicateSkill,
+  updateSkillTreeNode
 } from "../storage/in-memory.js";
 
 function validationError(issues: ValidationIssue[]) {
@@ -208,6 +212,145 @@ function parseCreateReferenceBody(body: Record<string, unknown>) {
   };
 }
 
+function parseOptionalTrimmedString(
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[]
+) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value !== "string") {
+    issues.push({
+      path,
+      rule: "type",
+      message: `${path} must be a string when provided.`
+    });
+    return undefined;
+  }
+
+  return value;
+}
+
+function parseCreateSkillTreeNodeBody(body: Record<string, unknown>) {
+  const issues: ValidationIssue[] = [];
+  const description = parseOptionalTrimmedString(body.description, "description", issues);
+  const tag = parseOptionalTrimmedString(body.tag, "tag", issues);
+  const color = parseOptionalTrimmedString(body.color, "color", issues);
+
+  if (typeof body.label !== "string" || body.label.trim().length === 0) {
+    issues.push({
+      path: "label",
+      rule: "min",
+      message: "A non-empty label is required."
+    });
+  }
+
+  if (
+    body.parentNodeId !== undefined &&
+    body.parentNodeId !== null &&
+    (typeof body.parentNodeId !== "string" || body.parentNodeId.trim().length === 0)
+  ) {
+    issues.push({
+      path: "parentNodeId",
+      rule: "min",
+      message: "parentNodeId must be a non-empty string when provided."
+    });
+  }
+
+  if (issues.length > 0) {
+    throw validationError(issues);
+  }
+
+  return {
+    label: body.label as string,
+    ...(description ? { description } : {}),
+    ...(tag ? { tag } : {}),
+    ...(color ? { color } : {}),
+    ...(typeof body.parentNodeId === "string"
+      ? { parentNodeId: body.parentNodeId as GraphNode["id"] }
+      : {})
+  };
+}
+
+function parseUpdateSkillTreeNodeBody(body: Record<string, unknown>) {
+  const issues: ValidationIssue[] = [];
+  const description = parseOptionalTrimmedString(body.description, "description", issues);
+  const tag = parseOptionalTrimmedString(body.tag, "tag", issues);
+  const color = parseOptionalTrimmedString(body.color, "color", issues);
+
+  if (
+    body.label !== undefined &&
+    (typeof body.label !== "string" || body.label.trim().length === 0)
+  ) {
+    issues.push({
+      path: "label",
+      rule: "min",
+      message: "label must be a non-empty string when provided."
+    });
+  }
+
+  if (
+    body.label === undefined &&
+    body.description === undefined &&
+    body.tag === undefined &&
+    body.color === undefined
+  ) {
+    issues.push({
+      path: "$",
+      rule: "required",
+      message: "At least one field must be provided."
+    });
+  }
+
+  if (issues.length > 0) {
+    throw validationError(issues);
+  }
+
+  return {
+    ...(typeof body.label === "string" ? { label: body.label } : {}),
+    ...(body.description !== undefined ? { description: description ?? null } : {}),
+    ...(body.tag !== undefined ? { tag: tag ?? null } : {}),
+    ...(body.color !== undefined ? { color: color ?? null } : {})
+  };
+}
+
+function parseReorderSkillTreeNodeBody(body: Record<string, unknown>) {
+  const issues: ValidationIssue[] = [];
+
+  if (
+    body.parentNodeId !== undefined &&
+    body.parentNodeId !== null &&
+    (typeof body.parentNodeId !== "string" || body.parentNodeId.trim().length === 0)
+  ) {
+    issues.push({
+      path: "parentNodeId",
+      rule: "min",
+      message: "parentNodeId must be a non-empty string when provided."
+    });
+  }
+
+  if (typeof body.targetIndex !== "number" || !Number.isInteger(body.targetIndex)) {
+    issues.push({
+      path: "targetIndex",
+      rule: "int",
+      message: "targetIndex must be an integer."
+    });
+  }
+
+  if (issues.length > 0) {
+    throw validationError(issues);
+  }
+
+  return {
+    ...(typeof body.parentNodeId === "string"
+      ? { parentNodeId: body.parentNodeId as GraphNode["id"] }
+      : {}),
+    targetIndex: body.targetIndex as number
+  };
+}
+
 export const graphSkillRoutes: readonly RouteDefinition[] = [
   {
     method: "GET",
@@ -239,6 +382,60 @@ export const graphSkillRoutes: readonly RouteDefinition[] = [
       const result = promoteNodeToSkill(body.nodeId, body.preferredSkillId);
 
       json(response, 201, result, correlation);
+    }
+  },
+  {
+    method: "POST",
+    match: (pathname) => (pathname === "/v1/skills/tree/nodes" ? {} : null),
+    handle: async ({ request, response, correlation }) => {
+      const body = parseCreateSkillTreeNodeBody(await readBody(request));
+      const result = createSkillTreeNode(body);
+
+      json(response, 201, result, correlation);
+    }
+  },
+  {
+    method: "PATCH",
+    match: (pathname) => {
+      const match = pathname.match(/^\/v1\/skills\/tree\/nodes\/([^/]+)$/);
+      const nodeId = match?.[1];
+
+      return nodeId ? { nodeId } : null;
+    },
+    handle: async ({ request, response, params, correlation }) => {
+      const body = parseUpdateSkillTreeNodeBody(await readBody(request));
+      const result = updateSkillTreeNode(params.nodeId as GraphNode["id"], body);
+
+      json(response, 200, result, correlation);
+    }
+  },
+  {
+    method: "POST",
+    match: (pathname) => {
+      const match = pathname.match(/^\/v1\/skills\/tree\/nodes\/([^/]+)\/reorder$/);
+      const nodeId = match?.[1];
+
+      return nodeId ? { nodeId } : null;
+    },
+    handle: async ({ request, response, params, correlation }) => {
+      const body = parseReorderSkillTreeNodeBody(await readBody(request));
+      const result = reorderSkillTreeNode(params.nodeId as GraphNode["id"], body);
+
+      json(response, 200, result, correlation);
+    }
+  },
+  {
+    method: "DELETE",
+    match: (pathname) => {
+      const match = pathname.match(/^\/v1\/skills\/tree\/nodes\/([^/]+)$/);
+      const nodeId = match?.[1];
+
+      return nodeId ? { nodeId } : null;
+    },
+    handle: ({ response, params, correlation }) => {
+      const result = deleteSkillTreeNode(params.nodeId as GraphNode["id"]);
+
+      json(response, 200, result, correlation);
     }
   },
   {
