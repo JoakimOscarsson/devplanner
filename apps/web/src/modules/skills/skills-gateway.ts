@@ -107,6 +107,7 @@ export interface CreateSkillTreeNodeInput {
     readonly canonicalSkillId: Skill["id"];
     readonly strategy:
       | "create-reference-to-existing"
+      | "move-existing-canonical-here"
       | "replace-existing-canonical-with-reference";
   };
 }
@@ -145,18 +146,31 @@ function createFetchRequest(baseUrl: string, fetcher: typeof fetch) {
 
     if (!response.ok) {
       let errorBody: Partial<DomainError> | null = null;
+      let fallbackMessage = `Gateway request failed for ${path} with ${response.status}.`;
 
       try {
-        errorBody = (await response.json()) as Partial<DomainError>;
+        const payload = (await response.json()) as Partial<DomainError> & {
+          error?: Partial<DomainError>;
+        };
+        errorBody =
+          payload && payload.error && typeof payload.error === "object" ? payload.error : payload;
       } catch {
-        errorBody = null;
+        try {
+          const text = await response.text();
+
+          if (text.trim().length > 0) {
+            fallbackMessage = text.trim();
+          }
+        } catch {
+          errorBody = null;
+        }
       }
 
       throw new GatewayRequestError({
         message:
           typeof errorBody?.message === "string" && errorBody.message.trim().length > 0
             ? errorBody.message
-            : `Gateway request failed for ${path} with ${response.status}.`,
+            : fallbackMessage,
         status: response.status,
         ...(typeof errorBody?.code === "string" ? { code: errorBody.code } : {}),
         ...(errorBody?.details ? { details: errorBody.details } : {})

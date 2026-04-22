@@ -15,7 +15,7 @@
 - Skill-tree drag reorder is intentionally disabled while search, filter, or multi-select constraints are active so visual drop targets always match the persisted order.
 - Skill-tree reorder starts from an explicit drag handle and only communicates within-level movement.
 - Skill creation surfaces suggestion cards inside the add-skill modal; selecting a brainstorm suggestion prefills the draft and appends a `brainstorm:<canvas>` tag, and the same card format is intended for future recommendation/LLM sources.
-- Exact duplicate skill creation is resolved inline in the add-skill modal by either keeping the existing canonical skill and creating a reference at the requested tree location, or by making the new entry canonical and converting the prior one into a reference.
+- Exact duplicate skill creation is resolved inline in the add-skill modal with three explicit choices: create a reference here, move the existing canonical origin here, or make the new entry canonical and replace the old origin with a reference.
 - Reference nodes are rendered inline in the tree, expose a `Go to origin` action, and use `Enter` as a keyboard shortcut to jump to the canonical skill location.
 - The filter popover and left navigation drawer both support `Escape` to close and return focus to their trigger buttons.
 - The brainstorm page autofocuses its workspace surface on load and accepts `N` for root node creation alongside the child/sibling hotkeys.

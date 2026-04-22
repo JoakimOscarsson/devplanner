@@ -1294,6 +1294,91 @@ function replaceCanonicalSkillWithNewTreeNode(input: {
   };
 }
 
+function moveCanonicalSkillNodeToLocation(input: {
+  canonicalSkill: SkillRecord;
+  parentNodeId?: GraphNode["id"];
+  description?: string;
+  tag?: string;
+  color?: string;
+}) {
+  const canonicalNode = findSkillGraphNode(input.canonicalSkill.id);
+
+  if (!canonicalNode) {
+    throw storeError(
+      "NOT_FOUND",
+      `Skill graph node for ${input.canonicalSkill.id} was not found.`,
+      404
+    );
+  }
+
+  if (
+    input.parentNodeId &&
+    (input.parentNodeId === canonicalNode.id ||
+      getSkillTreeDescendantIds(canonicalNode.id).has(input.parentNodeId))
+  ) {
+    throw storeError(
+      "VALIDATION_FAILED",
+      "The canonical skill cannot be moved into its own subtree.",
+      422,
+      {
+        issues: [
+          {
+            path: "parentNodeId",
+            rule: "cycle",
+            message: "The canonical skill cannot be moved into its own subtree."
+          }
+        ]
+      }
+    );
+  }
+
+  const previousParentNodeId = canonicalNode.parentNodeId;
+  const nextParentNodeId = input.parentNodeId;
+  const nextDescription = input.description?.trim() || canonicalNode.description;
+  const nextTag = input.tag ?? readNodeTagString(canonicalNode);
+  const nextColor = input.color ?? readNodeStringMetadata(canonicalNode, "color");
+  const updatedNode: NodeRecord = {
+    ...canonicalNode,
+    ...(nextParentNodeId ? { parentNodeId: nextParentNodeId } : { parentNodeId: undefined }),
+    ...(nextDescription ? { description: nextDescription } : { description: undefined }),
+    metadata: buildSkillTreeMetadata({
+      existing: canonicalNode.metadata,
+      tag: nextTag,
+      color: nextColor,
+      sortOrder: nextSkillTreeSortOrder(nextParentNodeId)
+    }),
+    updatedAt: now()
+  };
+
+  graphStore.nodes = graphStore.nodes.map((node) =>
+    node.id === canonicalNode.id ? updatedNode : node
+  );
+  replaceParentEdge(getSkillGraphCanvas().id, canonicalNode.id, nextParentNodeId);
+  renumberSkillTreeSiblings(previousParentNodeId);
+  renumberSkillTreeSiblings(nextParentNodeId);
+
+  const updatedSkill: SkillRecord = {
+    ...input.canonicalSkill,
+    sourceNodeId: updatedNode.id,
+    ...(nextDescription ? { description: nextDescription } : { description: undefined }),
+    metadata: buildSkillTreeMetadata({
+      existing: input.canonicalSkill.metadata,
+      tag: nextTag,
+      color: nextColor
+    }),
+    updatedAt: now()
+  };
+
+  graphStore.skills = graphStore.skills.map((entry) =>
+    entry.id === updatedSkill.id ? updatedSkill : entry
+  );
+
+  return {
+    skill: updatedSkill,
+    skillNode: updatedNode
+  };
+}
+
 function reorderBrainstormCanvases(
   targetCanvas: CanvasRecord,
   requestedSortOrder: number
@@ -1793,6 +1878,7 @@ export function createSkillTreeNode(input: {
     canonicalSkillId: Skill["id"];
     strategy:
       | "create-reference-to-existing"
+      | "move-existing-canonical-here"
       | "replace-existing-canonical-with-reference";
   };
 }) {
@@ -1831,6 +1917,27 @@ export function createSkillTreeNode(input: {
         canonicalSkill,
         referenceNode
       };
+    }
+
+    if (
+      exactCandidate &&
+      input.duplicateResolution?.canonicalSkillId === exactCandidate.skillId &&
+      input.duplicateResolution.strategy === "move-existing-canonical-here"
+    ) {
+      if (input.parentNodeId) {
+        assertSkillTreeParent(
+          `nod_pending_${crypto.randomUUID().replaceAll("-", "")}` as GraphNode["id"],
+          input.parentNodeId
+        );
+      }
+
+      return moveCanonicalSkillNodeToLocation({
+        canonicalSkill: assertSkill(exactCandidate.skillId as Skill["id"]),
+        parentNodeId: input.parentNodeId,
+        description: input.description,
+        tag: input.tag,
+        color: input.color
+      });
     }
 
     if (

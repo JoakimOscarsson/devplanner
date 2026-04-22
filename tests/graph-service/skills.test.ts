@@ -441,6 +441,49 @@ describe("graph-service skill routes", () => {
     expect(typescriptEntry?.referenceCount).toBeGreaterThanOrEqual(2);
   });
 
+  it("can move the existing canonical skill to the newly requested location", async () => {
+    const { baseUrl } = await startServer();
+
+    const response = await fetch(`${baseUrl}/v1/skills/tree/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "TypeScript",
+        parentNodeId: "nod_skill_leadership",
+        duplicateResolution: {
+          canonicalSkillId: "skl_typescript",
+          strategy: "move-existing-canonical-here"
+        }
+      })
+    });
+    const payload = await readJson<{
+      skill: Skill;
+      skillNode: GraphNode;
+    }>(response);
+
+    expect(response.status).toBe(201);
+    expect(payload.skill.id).toBe("skl_typescript");
+    expect(payload.skillNode.id).toBe("nod_skill_typescript");
+    expect(payload.skillNode.parentNodeId).toBe("nod_skill_leadership");
+
+    const inventoryResponse = await fetch(`${baseUrl}/v1/skills`);
+    const inventoryPayload = await readJson<{
+      inventory: Array<{
+        skillId: string;
+        referenceCount: number;
+        sourceNodeId?: string;
+      }>;
+    }>(inventoryResponse);
+    const typescriptEntry = inventoryPayload.inventory.find(
+      (entry) => entry.skillId === "skl_typescript"
+    );
+
+    expect(typescriptEntry?.sourceNodeId).toBe("nod_skill_typescript");
+    expect(typescriptEntry?.referenceCount).toBe(1);
+  });
+
   it("creates an explicit skill reference in the target canvas", async () => {
     const { baseUrl } = await startServer();
 

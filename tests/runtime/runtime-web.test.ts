@@ -7,13 +7,16 @@ describe("runtime-web", () => {
     const fetcher = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          code: "SKILL_RESOLUTION_REQUIRED",
-          message: "Duplicate skill resolution is required before creating this skill.",
-          status: 409,
-          retryable: false,
-          details: {
-            normalizedLabel: "typescript",
-            candidates: [{ skillId: "skl_typescript" }]
+          error: {
+            code: "SKILL_RESOLUTION_REQUIRED",
+            message: "Duplicate skill resolution is required before creating this skill.",
+            status: 409,
+            retryable: false,
+            details: {
+              normalizedLabel: "typescript",
+              exactMatch: true,
+              candidates: [{ skillId: "skl_typescript" }]
+            }
           }
         }),
         {

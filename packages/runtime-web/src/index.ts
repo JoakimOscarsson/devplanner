@@ -14,6 +14,18 @@ export interface GatewayHealthResponse {
   services: ServiceHealthSnapshot[];
 }
 
+function readDomainErrorBody(value: unknown): Partial<DomainError> | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  if ("error" in value && value.error && typeof value.error === "object") {
+    return value.error as Partial<DomainError>;
+  }
+
+  return value as Partial<DomainError>;
+}
+
 export class GatewayRequestError extends Error {
   readonly status: number;
   readonly code: string | undefined;
@@ -52,7 +64,7 @@ export class GatewayClient {
       let fallbackMessage = `Gateway request failed for ${path} with ${response.status}.`;
 
       try {
-        errorBody = (await response.json()) as Partial<DomainError>;
+        errorBody = readDomainErrorBody(await response.json());
       } catch {
         try {
           const text = await response.text();

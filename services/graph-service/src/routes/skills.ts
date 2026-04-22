@@ -243,6 +243,7 @@ function parseCreateSkillTreeNodeBody(body: Record<string, unknown>) {
         canonicalSkillId: Skill["id"];
         strategy:
           | "create-reference-to-existing"
+          | "move-existing-canonical-here"
           | "replace-existing-canonical-with-reference";
       }
     | undefined;
@@ -290,13 +291,14 @@ function parseCreateSkillTreeNodeBody(body: Record<string, unknown>) {
 
       if (
         duplicateBody.strategy !== "create-reference-to-existing" &&
+        duplicateBody.strategy !== "move-existing-canonical-here" &&
         duplicateBody.strategy !== "replace-existing-canonical-with-reference"
       ) {
         issues.push({
           path: "duplicateResolution.strategy",
           rule: "enum",
           message:
-            "duplicateResolution.strategy must be create-reference-to-existing or replace-existing-canonical-with-reference."
+            "duplicateResolution.strategy must be create-reference-to-existing, move-existing-canonical-here, or replace-existing-canonical-with-reference."
         });
       } else if (typeof duplicateBody.canonicalSkillId === "string") {
         duplicateResolution = {

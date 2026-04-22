@@ -79,6 +79,7 @@ interface ToastEntry {
 interface DuplicateResolutionState {
   readonly label: string;
   readonly guidance: string;
+  readonly exactMatch: boolean;
   readonly candidates: readonly DuplicateSkillCandidate[];
 }
 
@@ -333,6 +334,10 @@ function readDuplicateSkillCandidates(value: unknown): readonly DuplicateSkillCa
   });
 }
 
+function isExactDuplicateMatch(value: unknown) {
+  return value === true;
+}
+
 function appendSuggestionTag(existingTagInput: string, nextTag: string) {
   const tags = parseTagList(existingTagInput);
 
@@ -484,6 +489,7 @@ function SkillEditorModal({
   duplicateResolution,
   onSelectDuplicateCandidate,
   onCreateReferenceFromDuplicate,
+  onMoveExistingCanonicalHere,
   onReplaceCanonicalFromDuplicate,
   onDismissDuplicateResolution,
   onSuggestionPick,
@@ -507,6 +513,7 @@ function SkillEditorModal({
   readonly duplicateResolution?: DuplicateResolutionState | null;
   readonly onSelectDuplicateCandidate?: (candidate: DuplicateSkillCandidate) => void;
   readonly onCreateReferenceFromDuplicate?: (candidate: DuplicateSkillCandidate) => void;
+  readonly onMoveExistingCanonicalHere?: (candidate: DuplicateSkillCandidate) => void;
   readonly onReplaceCanonicalFromDuplicate?: (candidate: DuplicateSkillCandidate) => void;
   readonly onDismissDuplicateResolution?: () => void;
   readonly onSuggestionPick?: (suggestion: SkillCreationSuggestion) => void;
@@ -815,31 +822,39 @@ function SkillEditorModal({
                     <p>{candidate.matchKind} match • {candidate.referenceCount} references</p>
                   </div>
                   <div className="skill-modal__duplicate-actions">
-                    <button
-                      type="button"
-                      className="skill-modal__secondary"
-                      onClick={() => onSelectDuplicateCandidate?.(candidate)}
-                    >
-                      Go to Existing
-                    </button>
-                    {isCreateMode && candidate.matchKind === "exact" ? (
+                    {isCreateMode && duplicateResolution.exactMatch ? (
                       <>
                         <button
                           type="button"
                           className="skill-modal__secondary"
                           onClick={() => onCreateReferenceFromDuplicate?.(candidate)}
                         >
-                          Existing is real
+                          Create Reference Here
+                        </button>
+                        <button
+                          type="button"
+                          className="skill-modal__secondary"
+                          onClick={() => onMoveExistingCanonicalHere?.(candidate)}
+                        >
+                          Move Origin Here
                         </button>
                         <button
                           type="button"
                           className="skill-modal__secondary"
                           onClick={() => onReplaceCanonicalFromDuplicate?.(candidate)}
                         >
-                          New one is real
+                          Replace Origin With Reference Here
                         </button>
                       </>
-                    ) : null}
+                    ) : (
+                      <button
+                        type="button"
+                        className="skill-modal__secondary"
+                        onClick={() => onSelectDuplicateCandidate?.(candidate)}
+                      >
+                        Go to Existing
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1499,10 +1514,11 @@ export function SkillsSpotlight({
         setDuplicateResolution({
           label: editorDraft.label,
           guidance,
+          exactMatch: isExactDuplicateMatch(requestError.details?.exactMatch),
           candidates
         });
         setError(null);
-        pushToast("Duplicate skill detected. Choose an existing skill or rename it.", "error");
+        pushToast("Duplicate skill detected. Choose how to resolve it.", "error");
       } else {
         setError(getErrorMessage(requestError));
       }
@@ -1513,7 +1529,10 @@ export function SkillsSpotlight({
 
   async function createNodeFromDuplicateResolution(
     candidate: DuplicateSkillCandidate,
-    strategy: "create-reference-to-existing" | "replace-existing-canonical-with-reference"
+    strategy:
+      | "create-reference-to-existing"
+      | "move-existing-canonical-here"
+      | "replace-existing-canonical-with-reference"
   ) {
     if (
       !editorState ||
@@ -1563,7 +1582,9 @@ export function SkillsSpotlight({
       await refreshSnapshot(
         strategy === "create-reference-to-existing"
           ? `Added a reference to "${candidate.canonicalLabel}".`
-          : `Made the new "${editorDraft.label}" entry canonical.`,
+          : strategy === "move-existing-canonical-here"
+            ? `Moved "${candidate.canonicalLabel}" to this location.`
+            : `Made the new "${editorDraft.label}" entry canonical.`,
         response.skillNode?.id ?? response.referenceNode?.id ?? null
       );
       setEditorState(null);
@@ -2337,6 +2358,9 @@ export function SkillsSpotlight({
           }}
           onCreateReferenceFromDuplicate={(candidate) => {
             void createNodeFromDuplicateResolution(candidate, "create-reference-to-existing");
+          }}
+          onMoveExistingCanonicalHere={(candidate) => {
+            void createNodeFromDuplicateResolution(candidate, "move-existing-canonical-here");
           }}
           onReplaceCanonicalFromDuplicate={(candidate) => {
             void createNodeFromDuplicateResolution(
