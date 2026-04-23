@@ -35,6 +35,7 @@ import {
 import { layoutBrainstormGraph } from "./brainstorm-layout";
 import {
   type BrainstormCanvas,
+  type BrainstormEdge,
   type BrainstormNode,
   type BrainstormPosition
 } from "./brainstorm-types";
@@ -486,6 +487,7 @@ export function BrainstormSpotlight({
   const [canvasName, setCanvasName] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<BrainstormNode["id"] | null>(null);
   const [connectMode, setConnectMode] = useState(false);
+  const [linkMode, setLinkMode] = useState(false);
   const [reparentTarget, setReparentTarget] = useState<ReparentTargetState | null>(null);
   const [editorState, setEditorState] = useState<NodeEditorState | null>(null);
   const [editorDraft, setEditorDraft] = useState<NodeEditorDraft>(createEmptyNodeDraft);
@@ -570,6 +572,17 @@ export function BrainstormSpotlight({
       : undefined;
   const selectedNodeCount = selectedGraph?.nodes.length ?? 0;
   const linkCount = selectedGraph?.edges.length ?? 0;
+  const explicitEdgesForSelectedNode = useMemo(() => {
+    if (!selectedNode || !selectedGraph) {
+      return [];
+    }
+
+    return selectedGraph.edges.filter(
+      (edge) =>
+        edge.kind !== "contains" &&
+        (edge.sourceNodeId === selectedNode.id || edge.targetNodeId === selectedNode.id)
+    );
+  }, [selectedGraph, selectedNode]);
   const selectedNodeParentLabel = selectedNode?.parentNodeId
     ? nodesById.get(selectedNode.parentNodeId)?.label ?? "Unknown"
     : "Root node";
@@ -616,6 +629,7 @@ export function BrainstormSpotlight({
 
   useEffect(() => {
     setConnectMode(false);
+    setLinkMode(false);
     setReparentTarget(null);
   }, [selectedCanvasIdForActions]);
 
@@ -648,6 +662,7 @@ export function BrainstormSpotlight({
     if (!selectedGraph) {
       setSelectedNodeId(null);
       setConnectMode(false);
+      setLinkMode(false);
       return;
     }
 
@@ -657,6 +672,7 @@ export function BrainstormSpotlight({
     ) {
       setSelectedNodeId(null);
       setConnectMode(false);
+      setLinkMode(false);
     }
   }, [selectedGraph, selectedNodeId]);
 
@@ -748,6 +764,7 @@ export function BrainstormSpotlight({
     setError(null);
     setSelectedNodeId(null);
     setConnectMode(false);
+    setLinkMode(false);
 
     onSelectedCanvasChange?.(canvasId);
 
@@ -1097,6 +1114,62 @@ export function BrainstormSpotlight({
     });
   }
 
+  async function createLinkToNode(targetNodeId: BrainstormNode["id"]) {
+    if (
+      !selectedCanvasIdForActions ||
+      !selectedNode ||
+      pendingAction === "mutation" ||
+      targetNodeId === selectedNode.id
+    ) {
+      return;
+    }
+
+    try {
+      setPendingAction("mutation");
+      await gateway.createEdge({
+        canvasId: selectedCanvasIdForActions,
+        sourceNodeId: selectedNode.id,
+        targetNodeId,
+        kind: "relates-to"
+      });
+      await refreshCanvasGraph(selectedCanvasIdForActions, {
+        preferredSelectedNodeId: selectedNode.id
+      });
+      setFeedback(
+        `Linked "${selectedNode.label}" to "${nodesById.get(targetNodeId)?.label ?? "the selected node"}".`
+      );
+      setError(null);
+      setLinkMode(false);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function removeLink(edgeId: BrainstormEdge["id"]) {
+    if (!selectedCanvasIdForActions || pendingAction === "mutation") {
+      return;
+    }
+
+    try {
+      setPendingAction("mutation");
+      await gateway.deleteEdge({
+        canvasId: selectedCanvasIdForActions,
+        edgeId
+      });
+      await refreshCanvasGraph(selectedCanvasIdForActions, {
+        preferredSelectedNodeId: selectedNodeId
+      });
+      setFeedback("Removed the link.");
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
   function previewReparentTarget(nodeId: BrainstormNode["id"]) {
     setReparentTarget({ nodeId });
     setError(null);
@@ -1106,6 +1179,18 @@ export function BrainstormSpotlight({
   }
 
   async function handleNodeClick(node: GraphNodeViewModel) {
+    if (
+      linkMode &&
+      selectedNode &&
+      selectedCanvasIdForActions
+    ) {
+      if (node.id === selectedNode.id) {
+        return;
+      }
+      await createLinkToNode(node.id as BrainstormNode["id"]);
+      return;
+    }
+
     if (
       connectMode &&
       selectedNode &&
@@ -1570,6 +1655,28 @@ export function BrainstormSpotlight({
                 <span>{selectedNodeParentLabel}</span>
                 <span>{formatTagList(readBrainstormNodeTags(selectedNode)) || "Untagged"}</span>
                 {selectedNode.description ? <span>{selectedNode.description}</span> : null}
+                {explicitEdgesForSelectedNode.length > 0 ? (
+                  <div className="brainstorm-selection-links">
+                    {explicitEdgesForSelectedNode.map((edge) => {
+                      const otherNodeId =
+                        edge.sourceNodeId === selectedNode.id
+                          ? edge.targetNodeId
+                          : edge.sourceNodeId;
+                      return (
+                        <button
+                          key={edge.id}
+                          type="button"
+                          className="brainstorm-selection-links__item"
+                          onClick={() => {
+                            void removeLink(edge.id);
+                          }}
+                        >
+                          Remove {edge.kind} to {nodesById.get(otherNodeId)?.label ?? "node"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <p className="brainstorm-muted-copy">
@@ -1681,6 +1788,22 @@ export function BrainstormSpotlight({
               </button>
               <button
                 type="button"
+                aria-pressed={linkMode}
+                className={
+                  linkMode
+                    ? "skill-tree-toolbar__button skill-tree-toolbar__button--active"
+                    : "skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                }
+                onClick={() => {
+                  setLinkMode((current) => !current);
+                  setConnectMode(false);
+                }}
+                disabled={!canMutateSelection}
+              >
+                {linkMode ? "Cancel link" : "Link to"}
+              </button>
+              <button
+                type="button"
                 className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
                 onClick={() => {
                   void tidyLayout();
@@ -1725,6 +1848,8 @@ export function BrainstormSpotlight({
           <div className="brainstorm-toolbar__hint">
             {connectMode
               ? "Click or tap a node to preview the new parent, then use Apply move, Enter, or Right Arrow to confirm. Escape cancels."
+              : linkMode
+                ? "Click or tap another node to create a relates-to link from the selected node."
               : "Drag empty space to pan. Pinch or scroll to zoom. Drag a node to move its branch; Tidy layout re-flows everything."}
           </div>
 
@@ -1760,6 +1885,7 @@ export function BrainstormSpotlight({
             onCanvasClick={() => {
               setSelectedNodeId(null);
               setConnectMode(false);
+              setLinkMode(false);
               setReparentTarget(null);
               setFeedback(null);
             }}

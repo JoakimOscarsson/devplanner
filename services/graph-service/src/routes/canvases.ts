@@ -1,5 +1,7 @@
 import type {
   CanvasMode,
+  GraphEdge,
+  GraphEdgeKind,
   GraphNode,
   GraphNodePosition
 } from "@pdp-helper/contracts-graph";
@@ -8,7 +10,9 @@ import type { RouteDefinition } from "@pdp-helper/runtime-node";
 import { createDomainError, errorResponse, json, readBody } from "@pdp-helper/runtime-node";
 import {
   createCanvas,
+  createEdge,
   createNode,
+  deleteEdge,
   deleteNode,
   getCanvasGraph,
   listCanvases,
@@ -41,6 +45,12 @@ interface UpdateNodeBody {
   description?: string | null;
   parentNodeId?: GraphNode["id"] | null;
   position?: GraphNodePosition;
+}
+
+interface CreateEdgeBody {
+  sourceNodeId: GraphNode["id"];
+  targetNodeId: GraphNode["id"];
+  kind?: Exclude<GraphEdgeKind, "contains">;
 }
 
 function notFoundError(entityType: string, entityId: string) {
@@ -275,6 +285,49 @@ function parseCreateNodeBody(body: Record<string, unknown>): CreateNodeBody {
   };
 }
 
+function parseCreateEdgeBody(body: Record<string, unknown>): CreateEdgeBody {
+  const issues: ValidationIssue[] = [];
+
+  if (typeof body.sourceNodeId !== "string" || body.sourceNodeId.trim().length === 0) {
+    issues.push({
+      path: "sourceNodeId",
+      rule: "min",
+      message: "sourceNodeId is required."
+    });
+  }
+
+  if (typeof body.targetNodeId !== "string" || body.targetNodeId.trim().length === 0) {
+    issues.push({
+      path: "targetNodeId",
+      rule: "min",
+      message: "targetNodeId is required."
+    });
+  }
+
+  if (
+    body.kind !== undefined &&
+    body.kind !== "relates-to" &&
+    body.kind !== "depends-on" &&
+    body.kind !== "references"
+  ) {
+    issues.push({
+      path: "kind",
+      rule: "enum",
+      message: "kind must be one of relates-to, depends-on, or references."
+    });
+  }
+
+  if (issues.length > 0) {
+    throw validationError(issues);
+  }
+
+  return {
+    sourceNodeId: body.sourceNodeId as GraphNode["id"],
+    targetNodeId: body.targetNodeId as GraphNode["id"],
+    ...(body.kind ? { kind: body.kind as Exclude<GraphEdgeKind, "contains"> } : {})
+  };
+}
+
 function parseUpdateNodeBody(body: Record<string, unknown>): UpdateNodeBody {
   const issues: ValidationIssue[] = [];
   const tag = parseTagInput(body.tag, "tag", false, issues);
@@ -433,6 +486,24 @@ export const graphCanvasRoutes: readonly RouteDefinition[] = [
     }
   },
   {
+    method: "POST",
+    match: (pathname) => {
+      const match = pathname.match(/^\/v1\/canvases\/([^/]+)\/edges$/);
+      const canvasId = match?.[1];
+      return canvasId ? { canvasId } : null;
+    },
+    handle: async ({ request, response, params, correlation }) => {
+      const body = parseCreateEdgeBody(await readBody(request));
+      const edge = createEdge(params.canvasId as never, {
+        sourceNodeId: body.sourceNodeId,
+        targetNodeId: body.targetNodeId,
+        kind: body.kind ?? "relates-to"
+      });
+
+      json(response, 201, { edge }, correlation);
+    }
+  },
+  {
     method: "DELETE",
     match: (pathname) => {
       const match = pathname.match(/^\/v1\/canvases\/([^/]+)\/nodes\/([^/]+)$/);
@@ -442,6 +513,23 @@ export const graphCanvasRoutes: readonly RouteDefinition[] = [
     },
     handle: ({ response, params, correlation }) => {
       const deleted = deleteNode(params.canvasId as never, params.nodeId as never);
+
+      json(response, 200, deleted, correlation);
+    }
+  },
+  {
+    method: "DELETE",
+    match: (pathname) => {
+      const match = pathname.match(/^\/v1\/canvases\/([^/]+)\/edges\/([^/]+)$/);
+      const canvasId = match?.[1];
+      const edgeId = match?.[2];
+      return canvasId && edgeId ? { canvasId, edgeId } : null;
+    },
+    handle: ({ response, params, correlation }) => {
+      const deleted = deleteEdge(
+        params.canvasId as GraphNode["canvasId"],
+        params.edgeId as GraphEdge["id"]
+      );
 
       json(response, 200, deleted, correlation);
     }

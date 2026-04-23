@@ -9,6 +9,8 @@
 - `POST /v1/canvases/:canvasId/nodes`
 - `PATCH /v1/canvases/:canvasId/nodes/:nodeId`
 - `DELETE /v1/canvases/:canvasId/nodes/:nodeId`
+- `POST /v1/canvases/:canvasId/edges`
+- `DELETE /v1/canvases/:canvasId/edges/:edgeId`
 - `POST /v1/skills/check-duplicate`
 - `POST /v1/skills/promote`
 - `POST /v1/skills/resolve-duplicate`
@@ -32,6 +34,8 @@
 - Brainstorm node create and update payloads now use a free-form `tag` string instead of a fixed category enum. The graph service persists it as both `metadata.tag` and `metadata.tags`, and derives the internal brainstorm node classification from whether the tag list includes `skill`.
 - `PATCH /v1/canvases/:canvasId/nodes/:nodeId` rejects `parentNodeId` changes that would move a brainstorm node into its own subtree.
 - `DELETE /v1/canvases/:canvasId/nodes/:nodeId` detaches direct children to the root level and removes incident edges for the deleted node.
+- `POST /v1/canvases/:canvasId/edges` creates non-structural brainstorm links only; `contains` edges remain owned by parent relationships.
+- `DELETE /v1/canvases/:canvasId/edges/:edgeId` removes only explicit non-structural edges and rejects structural `contains` edges.
 
 ## Shared conventions
 - Uses id prefixes from `@pdp-helper/contracts-core.ID_PREFIXES`

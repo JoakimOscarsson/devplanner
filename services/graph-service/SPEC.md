@@ -11,6 +11,7 @@ The graph service is the source of truth for brainstorm canvases and the skill g
 - Materialize and update recommendation nodes in response to recommendation-service requests and decisions.
 - Support skill-tree CRUD and ordering behavior while keeping the backend graph model as the source of truth.
 - Reject brainstorm reparent operations that would create parent-child cycles.
+- Support explicit non-structural brainstorm links in addition to parent-owned `contains` relationships.
 
 ## Non-Goals
 - Generating recommendations.

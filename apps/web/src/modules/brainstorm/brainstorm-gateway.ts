@@ -8,6 +8,8 @@ import {
 import type {
   BrainstormCanvas,
   BrainstormCanvasMode,
+  BrainstormEdge,
+  BrainstormEdgeKind,
   BrainstormNode,
   BrainstormNodeRole,
   BrainstormNodeSource,
@@ -64,6 +66,22 @@ export interface DeleteBrainstormNodeResponse {
   readonly deletedNodeId: BrainstormNode["id"];
 }
 
+export interface CreateBrainstormEdgeInput {
+  readonly canvasId: BrainstormCanvas["id"];
+  readonly sourceNodeId: BrainstormNode["id"];
+  readonly targetNodeId: BrainstormNode["id"];
+  readonly kind?: Exclude<BrainstormEdgeKind, "contains">;
+}
+
+export interface CreateBrainstormEdgeResponse {
+  readonly edge?: BrainstormEdge;
+}
+
+export interface DeleteBrainstormEdgeInput {
+  readonly canvasId: BrainstormCanvas["id"];
+  readonly edgeId: BrainstormEdge["id"];
+}
+
 export interface BrainstormGatewayPort {
   listCanvases(): Promise<BrainstormCanvasesResponse>;
   getCanvasGraph(canvasId: BrainstormCanvas["id"]): Promise<BrainstormCanvasGraph>;
@@ -79,6 +97,12 @@ export interface BrainstormGatewayPort {
   deleteNode(
     input: DeleteBrainstormNodeInput
   ): Promise<DeleteBrainstormNodeResponse>;
+  createEdge(
+    input: CreateBrainstormEdgeInput
+  ): Promise<CreateBrainstormEdgeResponse>;
+  deleteEdge(
+    input: DeleteBrainstormEdgeInput
+  ): Promise<{ deletedEdgeId: BrainstormEdge["id"] }>;
 }
 
 function createFetchRequest(baseUrl: string, fetcher: typeof fetch) {
@@ -179,6 +203,32 @@ export function createBrainstormGatewayPort(
     deleteNode(input) {
       return request<DeleteBrainstormNodeResponse>(
         `/api/v1/canvases/${input.canvasId}/nodes/${input.nodeId}`,
+        {
+          method: "DELETE"
+        }
+      );
+    },
+
+    createEdge(input) {
+      return request<CreateBrainstormEdgeResponse>(
+        `/api/v1/canvases/${input.canvasId}/edges`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            sourceNodeId: input.sourceNodeId,
+            targetNodeId: input.targetNodeId,
+            kind: input.kind ?? "relates-to"
+          })
+        }
+      );
+    },
+
+    deleteEdge(input) {
+      return request<{ deletedEdgeId: BrainstormEdge["id"] }>(
+        `/api/v1/canvases/${input.canvasId}/edges/${input.edgeId}`,
         {
           method: "DELETE"
         }

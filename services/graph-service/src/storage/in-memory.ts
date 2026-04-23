@@ -11,6 +11,7 @@ import type {
   CanvasMode,
   DuplicateSkillCandidate,
   GraphEdge,
+  GraphEdgeKind,
   GraphNode,
   GraphNodeCategory,
   GraphNodePosition,
@@ -1081,6 +1082,90 @@ function replaceParentEdge(
       ...auditFields(timestamp)
     }
   ];
+}
+
+function assertBrainstormNodeInCanvas(
+  canvasId: Canvas["id"],
+  nodeId: GraphNode["id"]
+) {
+  const node = assertNodeInCanvas(canvasId, nodeId);
+
+  if (node.role !== "brainstorm") {
+    throw storeError(
+      "VALIDATION_FAILED",
+      "Only brainstorm nodes can be linked on brainstorm canvases.",
+      422
+    );
+  }
+
+  return node;
+}
+
+export function createEdge(
+  canvasId: Canvas["id"],
+  input: {
+    sourceNodeId: GraphNode["id"];
+    targetNodeId: GraphNode["id"];
+    kind: Exclude<GraphEdgeKind, "contains">;
+  }
+) {
+  assertMutableBrainstormCanvas(canvasId);
+  const sourceNode = assertBrainstormNodeInCanvas(canvasId, input.sourceNodeId);
+  const targetNode = assertBrainstormNodeInCanvas(canvasId, input.targetNodeId);
+
+  if (sourceNode.id === targetNode.id) {
+    throw storeError(
+      "VALIDATION_FAILED",
+      "A node cannot link to itself.",
+      422
+    );
+  }
+
+  const existing = graphStore.edges.find(
+    (edge) =>
+      edge.canvasId === canvasId &&
+      edge.sourceNodeId === input.sourceNodeId &&
+      edge.targetNodeId === input.targetNodeId &&
+      edge.kind === input.kind
+  );
+
+  if (existing) {
+    return existing;
+  }
+
+  const edge: GraphEdge = {
+    id: buildId(ID_PREFIXES.edge) as GraphEdge["id"],
+    canvasId,
+    sourceNodeId: input.sourceNodeId,
+    targetNodeId: input.targetNodeId,
+    kind: input.kind,
+    ...auditFields(now())
+  };
+
+  graphStore.edges = [...graphStore.edges, edge];
+  return edge;
+}
+
+export function deleteEdge(canvasId: Canvas["id"], edgeId: GraphEdge["id"]) {
+  assertMutableBrainstormCanvas(canvasId);
+  const edge = graphStore.edges.find(
+    (entry) => entry.id === edgeId && entry.canvasId === canvasId
+  );
+
+  if (!edge) {
+    throw storeError("NOT_FOUND", `Edge ${edgeId} was not found.`, 404);
+  }
+
+  if (edge.kind === "contains") {
+    throw storeError(
+      "VALIDATION_FAILED",
+      "Structural contains edges are managed through parent relationships.",
+      422
+    );
+  }
+
+  graphStore.edges = graphStore.edges.filter((entry) => entry.id !== edgeId);
+  return { deletedEdgeId: edgeId };
 }
 
 function nextSkillGraphPosition(role: "skill" | "reference") {
