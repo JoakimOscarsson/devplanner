@@ -674,10 +674,10 @@ export function BrainstormSpotlight({
   }, [loading, selectedCanvas]);
 
   useEffect(() => {
-    setViewportOffset({ x: 48, y: 36 });
+    setViewportOffset(getViewResetOffset(canvasView.nodes, getCanvasViewportSize()));
     setConnectMode(false);
     setReparentTarget(null);
-  }, [selectedCanvasIdForActions]);
+  }, [canvasView.nodes, selectedCanvasIdForActions]);
 
   useEffect(() => {
     if (!connectMode) {
@@ -878,6 +878,8 @@ export function BrainstormSpotlight({
         );
       }
 
+      setPendingAction("mutation");
+
       try {
         const nodesToPersist = (resolvedGraph ?? graph).nodes.filter((node) =>
           dragState.subtreeIds.includes(node.id as BrainstormNode["id"])
@@ -904,6 +906,8 @@ export function BrainstormSpotlight({
         });
         setFeedback(null);
         setError(getErrorMessage(requestError));
+      } finally {
+        setPendingAction(null);
       }
     }
 
@@ -1243,6 +1247,8 @@ export function BrainstormSpotlight({
       current ? mergeCanvasGraph(current, shiftedGraph) : current
     );
 
+    setPendingAction("mutation");
+
     try {
       await Promise.all(
         shiftedGraph.nodes
@@ -1264,7 +1270,10 @@ export function BrainstormSpotlight({
       await refreshCanvasGraph(canvasId, {
         preferredSelectedNodeId: selectedNode.id
       });
+      setFeedback(null);
       setError(getErrorMessage(requestError));
+    } finally {
+      setPendingAction(null);
     }
   }
 
@@ -1374,6 +1383,19 @@ export function BrainstormSpotlight({
     setFeedback(null);
   }
 
+  function handleNodeFocus(node: GraphNodeViewModel) {
+    if (
+      !connectMode ||
+      !selectedNode ||
+      node.id === selectedNode.id ||
+      connectBlockedNodeIds.has(node.id as BrainstormNode["id"])
+    ) {
+      return;
+    }
+
+    previewReparentTarget(node.id as BrainstormNode["id"]);
+  }
+
   function handleNodePointerDown(
     event: ReactPointerEvent<HTMLButtonElement>,
     node: GraphNodeViewModel
@@ -1384,8 +1406,7 @@ export function BrainstormSpotlight({
       !selectedNodeRecord ||
       !selectedCanvasIdForActions ||
       connectMode ||
-      event.button !== 0 ||
-      event.pointerType === "touch"
+      event.button !== 0
     ) {
       return;
     }
@@ -1414,7 +1435,11 @@ export function BrainstormSpotlight({
   }
 
   function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || event.pointerType === "touch") {
+    if (event.button !== 0) {
+      return;
+    }
+
+    if (canvasView.nodes.length === 0) {
       return;
     }
 
@@ -1518,25 +1543,27 @@ export function BrainstormSpotlight({
         }
         break;
       case "ArrowLeft":
-        event.preventDefault();
         if (connectMode) {
+          event.preventDefault();
           setConnectMode(false);
           setReparentTarget(null);
-        } else {
+        } else if (selectedNode) {
+          event.preventDefault();
           await moveSelectedSubtree("left");
         }
         break;
       case "ArrowRight":
-        event.preventDefault();
         if (connectMode) {
+          event.preventDefault();
           await applyReparentTarget();
-        } else {
+        } else if (selectedNode) {
+          event.preventDefault();
           await moveSelectedSubtree("right");
         }
         break;
       case "ArrowUp":
-        event.preventDefault();
         if (connectMode) {
+          event.preventDefault();
           if (reparentCandidateNodeIds.length > 0) {
             const currentIndex = reparentTarget
               ? reparentCandidateNodeIds.indexOf(reparentTarget.nodeId)
@@ -1549,13 +1576,14 @@ export function BrainstormSpotlight({
               previewReparentTarget(nextNodeId);
             }
           }
-        } else {
+        } else if (selectedNode) {
+          event.preventDefault();
           await moveSelectedSubtree("up");
         }
         break;
       case "ArrowDown":
-        event.preventDefault();
         if (connectMode) {
+          event.preventDefault();
           if (reparentCandidateNodeIds.length > 0) {
             const currentIndex = reparentTarget
               ? reparentCandidateNodeIds.indexOf(reparentTarget.nodeId)
@@ -1568,7 +1596,8 @@ export function BrainstormSpotlight({
               previewReparentTarget(nextNodeId);
             }
           }
-        } else {
+        } else if (selectedNode) {
+          event.preventDefault();
           await moveSelectedSubtree("down");
         }
         break;
@@ -1597,6 +1626,8 @@ export function BrainstormSpotlight({
         setConnectMode(false);
         setReparentTarget(null);
         setEditorState(null);
+        setSelectedNodeId(null);
+        setFeedback(null);
         break;
       default:
         break;
@@ -1890,6 +1921,7 @@ export function BrainstormSpotlight({
                   : undefined
               }
               onNodeClick={(node) => void handleNodeClick(node)}
+              onNodeFocus={handleNodeFocus}
               onNodePointerDown={handleNodePointerDown}
               renderNodeMeta={(node) => {
                 const nodeRecord = nodesById.get(node.id as BrainstormNode["id"]);

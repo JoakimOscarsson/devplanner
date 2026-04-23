@@ -15,7 +15,7 @@
 - `src/shell/*` owns app-level layout and platform-state composition.
 - `src/modules/*` owns feature-isolated UI surfaces for brainstorm, skills, planner, tracker, recommendations, and external tools.
 - `src/lib/*` owns thin app-local helpers only.
-- The brainstorm module owns canvas interaction state locally, including viewport offset, subtree drag/pan thresholds, modal dirty-state tracking, request-order guards that prevent stale canvas loads from yanking the selected tab backward, and temporary reparent-target state for keyboard-completable `Move under` mode.
+- The brainstorm module owns canvas interaction state locally, including viewport offset, subtree drag/pan thresholds, modal dirty-state tracking, request-order guards that prevent stale canvas loads from yanking the selected tab backward, mutation locks around drag and keyboard move persistence, and temporary reparent-target state for keyboard-completable `Move under` mode.
 
 ## Update this file when
 - The UI starts talking to a new boundary.

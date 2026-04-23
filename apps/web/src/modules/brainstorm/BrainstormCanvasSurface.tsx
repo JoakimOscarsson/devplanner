@@ -28,6 +28,7 @@ export interface BrainstormCanvasSurfaceProps {
   readonly onCanvasPointerDown?: (event: PointerEvent<HTMLDivElement>) => void;
   readonly onEmptyPrimaryAction?: () => void;
   readonly onNodeClick?: (node: GraphNodeViewModel) => void;
+  readonly onNodeFocus?: (node: GraphNodeViewModel) => void;
   readonly onNodePointerDown?: (
     event: PointerEvent<HTMLButtonElement>,
     node: GraphNodeViewModel
@@ -52,6 +53,7 @@ export function BrainstormCanvasSurface({
   onCanvasPointerDown,
   onEmptyPrimaryAction,
   onNodeClick,
+  onNodeFocus,
   onNodePointerDown,
   renderNodeMeta
 }: BrainstormCanvasSurfaceProps) {
@@ -152,8 +154,8 @@ export function BrainstormCanvasSurface({
               type="button"
               data-brainstorm-hotkeys="allow"
               className={className}
-              aria-pressed={isSelected}
               aria-describedby={isReparentTarget ? `brainstorm-node-target-${node.id}` : undefined}
+              aria-label={isSelected ? `${node.label}, selected` : node.label}
               style={{
                 left: coordinates.x + viewportOffset.x,
                 top: coordinates.y + viewportOffset.y,
@@ -163,6 +165,9 @@ export function BrainstormCanvasSurface({
               onClick={(event) => {
                 event.stopPropagation();
                 onNodeClick?.(node);
+              }}
+              onFocus={() => {
+                onNodeFocus?.(node);
               }}
               onPointerDown={(event) => {
                 event.stopPropagation();

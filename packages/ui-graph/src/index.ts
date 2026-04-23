@@ -349,7 +349,7 @@ export function deriveChildNodePlacement(
 
   const siblingNodes = nodes.filter((node) => node.parentNodeId === parentNodeId);
   const nextY =
-    siblingNodes.length <= 1
+    siblingNodes.length === 0
       ? parentNode.position.y + VERTICAL_GAP
       : Math.max(...siblingNodes.map((node) => node.position.y)) + VERTICAL_GAP;
 

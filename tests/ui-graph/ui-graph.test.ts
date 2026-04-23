@@ -345,4 +345,39 @@ describe("ui-graph", () => {
       y: 248
     });
   });
+
+  it("places the next child below an existing only child", () => {
+    const nodes = [
+      {
+        id: "nod_root",
+        label: "Root",
+        category: "skill",
+        role: "brainstorm",
+        visualKind: "standard",
+        colorToken: "teal",
+        position: { x: 48, y: 48 }
+      },
+      {
+        id: "nod_child_a",
+        label: "Child A",
+        category: "course",
+        role: "brainstorm",
+        visualKind: "standard",
+        colorToken: "amber",
+        parentNodeId: "nod_root",
+        position: { x: 288, y: 208 }
+      }
+    ] as const;
+
+    expect(deriveChildNodePlacement(nodes, "nod_root")).toEqual({
+      parentNodeId: "nod_root",
+      x: 288,
+      y: 368
+    });
+    expect(deriveSiblingNodePlacement(nodes, "nod_child_a")).toEqual({
+      parentNodeId: "nod_root",
+      x: 288,
+      y: 368
+    });
+  });
 });

@@ -461,7 +461,7 @@ describe("brainstorm module", () => {
       })
     ).toMatchObject({
       parentNodeId: "nod_brainstorm_typescript",
-      position: { x: 304, y: 244 }
+      position: { x: 304, y: 272 }
     });
 
     expect(
@@ -473,7 +473,7 @@ describe("brainstorm module", () => {
       })
     ).toMatchObject({
       parentNodeId: "nod_brainstorm_typescript",
-      position: { x: 304, y: 244 }
+      position: { x: 304, y: 272 }
     });
 
     expect(
