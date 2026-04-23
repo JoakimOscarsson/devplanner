@@ -484,6 +484,12 @@ describe("brainstorm module", () => {
     ).toBe("compose-root");
     expect(
       interpretBrainstormHotkey({
+        key: "r",
+        targetTagName: "div"
+      })
+    ).toBeNull();
+    expect(
+      interpretBrainstormHotkey({
         key: "c",
         targetTagName: "div"
       })

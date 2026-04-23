@@ -650,11 +650,15 @@ textarea {
     32px 32px,
     32px 32px;
   cursor: grab;
-  touch-action: none;
+  touch-action: pan-y pinch-zoom;
 }
 
 .brainstorm-canvas--connect {
   cursor: crosshair;
+}
+
+.brainstorm-canvas--panning {
+  cursor: grabbing;
 }
 
 .brainstorm-canvas--empty {
@@ -755,6 +759,12 @@ textarea {
 .brainstorm-node--dragging {
   opacity: 0.9;
   cursor: grabbing;
+}
+
+.brainstorm-modal__note {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #667085;
 }
 
 .brainstorm-node--emerald {

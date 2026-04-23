@@ -9,14 +9,13 @@ import {
 } from "react";
 import type { ModuleCapability } from "@pdp-helper/ui-shell";
 import {
-  sortGraphNodes,
-  toGraphEdgeViewModel,
   toGraphNodeViewModel,
   type GraphNodeViewModel
 } from "@pdp-helper/ui-graph";
 import { gatewayUrl } from "../../lib/gateway";
 import {
   GRAPH_MOVE_STEP,
+  getGraphCanvasBounds,
   GRAPH_NODE_HEIGHT,
   GRAPH_NODE_WIDTH
 } from "../../lib/graph-canvas-helpers";
@@ -102,11 +101,17 @@ function isTypingTarget(target: EventTarget | null) {
     return false;
   }
 
+  if (target.closest("[data-brainstorm-hotkeys='allow']")) {
+    return false;
+  }
+
   const tagName = target.tagName.toLowerCase();
   return (
     tagName === "input" ||
     tagName === "textarea" ||
     tagName === "select" ||
+    tagName === "button" ||
+    tagName === "a" ||
     target.isContentEditable
   );
 }
@@ -283,13 +288,22 @@ function getViewResetOffset(nodes: readonly BrainstormNode[]): {
     return { x: 48, y: 36 };
   }
 
-  const minX = Math.min(...nodes.map((node) => node.position.x));
-  const minY = Math.min(...nodes.map((node) => node.position.y));
+  const bounds = getGraphCanvasBounds(nodes.map(toGraphNodeViewModel));
+  const viewportWidth = 920;
+  const viewportHeight = 660;
 
   return {
-    x: Math.max(24, 80 - minX),
-    y: Math.max(24, 64 - minY)
+    x: Math.round(Math.max(24, (viewportWidth - bounds.width) / 2)),
+    y: Math.round(Math.max(24, (viewportHeight - bounds.height) / 2))
   };
+}
+
+function isSameNodeDraft(left: NodeEditorDraft, right: NodeEditorDraft) {
+  return (
+    left.label === right.label &&
+    left.category === right.category &&
+    left.description === right.description
+  );
 }
 
 function BrainstormNodeModal({
@@ -297,6 +311,7 @@ function BrainstormNodeModal({
   draft,
   pending,
   parentLabel,
+  dirty,
   onDraftChange,
   onCancel,
   onSubmit
@@ -305,6 +320,7 @@ function BrainstormNodeModal({
   readonly draft: NodeEditorDraft;
   readonly pending: boolean;
   readonly parentLabel?: string;
+  readonly dirty: boolean;
   readonly onDraftChange: (draft: NodeEditorDraft) => void;
   readonly onCancel: () => void;
   readonly onSubmit: () => void;
@@ -333,9 +349,16 @@ function BrainstormNodeModal({
       className="skill-modal-backdrop"
       role="presentation"
       onPointerDown={(event) => {
+        if (pending) {
+          return;
+        }
         pointerStartedOnBackdrop.current = event.target === event.currentTarget;
       }}
       onPointerUp={(event) => {
+        if (pending) {
+          pointerStartedOnBackdrop.current = false;
+          return;
+        }
         if (
           pointerStartedOnBackdrop.current &&
           event.target === event.currentTarget
@@ -359,6 +382,9 @@ function BrainstormNodeModal({
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
+            if (pending) {
+              return;
+            }
             onCancel();
             return;
           }
@@ -469,6 +495,7 @@ function BrainstormNodeModal({
             {state.mode === "edit" ? "Save" : "Add"}
           </button>
         </div>
+        {dirty ? <p className="brainstorm-modal__note">Unsaved changes</p> : null}
       </form>
     </div>
   );
@@ -503,8 +530,13 @@ export function BrainstormSpotlight({
   const [draggingNodeId, setDraggingNodeId] = useState<BrainstormNode["id"] | null>(null);
   const [editorState, setEditorState] = useState<NodeEditorState | null>(null);
   const [editorDraft, setEditorDraft] = useState<NodeEditorDraft>(createEmptyNodeDraft);
+  const [editorInitialDraft, setEditorInitialDraft] = useState<NodeEditorDraft>(
+    createEmptyNodeDraft
+  );
   const [viewportOffset, setViewportOffset] = useState({ x: 48, y: 36 });
+  const [isPanning, setIsPanning] = useState(false);
   const workspaceRef = useRef<HTMLElement | null>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const snapshotRef = useRef<BrainstormSnapshot | null>(snapshot ?? null);
   const panStateRef = useRef<PanState | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
@@ -574,12 +606,7 @@ export function BrainstormSpotlight({
   const selectedGraph = selectedCanvasIdForActions
     ? activeSnapshot.graphsByCanvasId[selectedCanvasIdForActions]
     : undefined;
-  const canvasView = selectedGraph
-    ? {
-        nodes: sortGraphNodes(selectedGraph.nodes).map(toGraphNodeViewModel),
-        edges: selectedGraph.edges.map(toGraphEdgeViewModel)
-      }
-    : { nodes: [], edges: [] };
+  const canvasView = model.selectedCanvas?.graphView ?? { nodes: [], edges: [] };
   const nodesById = new Map(
     (selectedGraph?.nodes ?? []).map((node) => [node.id, node] as const)
   );
@@ -602,13 +629,14 @@ export function BrainstormSpotlight({
   );
   const reparentCandidateNodeIds = useMemo(
     () =>
-      (selectedGraph?.nodes ?? [])
+      canvasView.nodes
         .map((node) => node.id)
         .filter(
           (nodeId) =>
-            nodeId !== selectedNode?.id && !connectBlockedNodeIds.has(nodeId)
+            nodeId !== selectedNode?.id &&
+            !connectBlockedNodeIds.has(nodeId as BrainstormNode["id"])
         ) as BrainstormNode["id"][],
-    [connectBlockedNodeIds, selectedGraph?.nodes, selectedNode?.id]
+    [canvasView.nodes, connectBlockedNodeIds, selectedNode?.id]
   );
   const isGraphLoading =
     !!selectedCanvasIdForActions &&
@@ -676,7 +704,7 @@ export function BrainstormSpotlight({
       return;
     }
 
-    const dragThreshold = 4;
+    const dragThreshold = 8;
 
     function handlePointerMove(event: PointerEvent) {
       const panState = panStateRef.current;
@@ -684,6 +712,7 @@ export function BrainstormSpotlight({
 
       if (panState) {
         suppressCanvasClickRef.current = true;
+        setIsPanning(true);
         setViewportOffset({
           x: Math.round(panState.originX + (event.clientX - panState.pointerStartX)),
           y: Math.round(panState.originY + (event.clientY - panState.pointerStartY))
@@ -742,6 +771,7 @@ export function BrainstormSpotlight({
 
       panStateRef.current = null;
       dragStateRef.current = null;
+      setIsPanning(false);
 
       if (panState) {
         window.setTimeout(() => {
@@ -780,7 +810,7 @@ export function BrainstormSpotlight({
 
       try {
         const nodesToPersist = (resolvedGraph ?? graph).nodes.filter((node) =>
-          dragState.subtreeIds.includes(node.id)
+          dragState.subtreeIds.includes(node.id as BrainstormNode["id"])
         );
 
         await Promise.all(
@@ -793,21 +823,15 @@ export function BrainstormSpotlight({
           )
         );
 
+        await refreshCanvasGraph(dragState.canvasId, {
+          preferredSelectedNodeId: dragState.nodeId
+        });
+        setError(null);
         setFeedback(`Moved "${nodesById.get(dragState.nodeId)?.label ?? "node"}".`);
       } catch (requestError) {
-        setLocalSnapshot((current) =>
-          current
-            ? mergeCanvasGraph(
-                current,
-                shiftSubtreePositions(
-                  graph,
-                  new Set(dragState.subtreeIds),
-                  { x: 0, y: 0 },
-                  dragState.originPositions
-                )
-              )
-            : current
-        );
+        await refreshCanvasGraph(dragState.canvasId, {
+          preferredSelectedNodeId: dragState.nodeId
+        });
         setError(getErrorMessage(requestError));
       }
     }
@@ -966,21 +990,57 @@ export function BrainstormSpotlight({
     setFeedback(null);
     setError(null);
     setConnectMode(false);
+    returnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
     if (mode === "edit" && selectedNode) {
+      const nextDraft = createNodeDraftFromNode(selectedNode);
       setEditorState({
         mode,
         nodeId: selectedNode.id
       });
-      setEditorDraft(createNodeDraftFromNode(selectedNode));
+      setEditorDraft(nextDraft);
+      setEditorInitialDraft(nextDraft);
       return;
     }
 
+    const nextDraft = createEmptyNodeDraft();
     setEditorState({
       mode,
       ...(selectedNode ? { nodeId: selectedNode.id } : {})
     });
+    setEditorDraft(nextDraft);
+    setEditorInitialDraft(nextDraft);
+  }
+
+  function restoreFocusAfterEditorClose() {
+    const target = returnFocusRef.current;
+
+    if (target && target.isConnected) {
+      target.focus();
+      return;
+    }
+
+    workspaceRef.current?.focus();
+  }
+
+  function closeNodeEditor() {
+    if (pendingAction === "node") {
+      return;
+    }
+
+    if (!isSameNodeDraft(editorDraft, editorInitialDraft)) {
+      const confirmed = globalThis.confirm("Discard your unsaved node changes?");
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setEditorState(null);
     setEditorDraft(createEmptyNodeDraft());
+    setEditorInitialDraft(createEmptyNodeDraft());
+    restoreFocusAfterEditorClose();
   }
 
   async function submitNodeEditor() {
@@ -1010,6 +1070,7 @@ export function BrainstormSpotlight({
         await refreshCanvasGraph(selectedCanvasIdForActions, {
           preferredSelectedNodeId: editorState.nodeId
         });
+        setError(null);
         setFeedback(`Updated "${label}".`);
       } else if (selectedGraph) {
         const response = onCreateNode
@@ -1063,6 +1124,7 @@ export function BrainstormSpotlight({
               ? `Added child "${label}".`
               : `Added sibling "${label}".`
         );
+        setError(null);
       } else {
         setError("Select a loaded canvas before adding nodes.");
         return;
@@ -1070,7 +1132,8 @@ export function BrainstormSpotlight({
 
       setEditorState(null);
       setEditorDraft(createEmptyNodeDraft());
-      workspaceRef.current?.focus();
+      setEditorInitialDraft(createEmptyNodeDraft());
+      restoreFocusAfterEditorClose();
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -1116,19 +1179,15 @@ export function BrainstormSpotlight({
             })
           )
       );
+      await refreshCanvasGraph(canvasId, {
+        preferredSelectedNodeId: selectedNode.id
+      });
+      setError(null);
+      setFeedback(`Moved "${selectedNode.label}".`);
     } catch (requestError) {
-      setLocalSnapshot((current) =>
-        current
-          ? mergeCanvasGraph(
-              current,
-              shiftSubtreePositions(
-                selectedGraph,
-                subtreeIds,
-                { x: 0, y: 0 }
-              )
-            )
-          : current
-      );
+      await refreshCanvasGraph(canvasId, {
+        preferredSelectedNodeId: selectedNode.id
+      });
       setError(getErrorMessage(requestError));
     }
   }
@@ -1153,6 +1212,7 @@ export function BrainstormSpotlight({
       });
       setConnectMode(false);
       workspaceRef.current?.focus();
+      setError(null);
       setFeedback(`Detached "${selectedNode.label}" from its parent.`);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -1169,8 +1229,13 @@ export function BrainstormSpotlight({
     }
 
     const subtreeCount = collectSubtreeNodeIds(selectedGraph?.nodes ?? [], selectedNode.id).length;
+    const descendantCount = subtreeCount - 1;
 
-    if (!globalThis.confirm(`Delete "${selectedNode.label}" and ${subtreeCount - 1} descendant${subtreeCount - 1 === 1 ? "" : "s"}?`)) {
+    if (!globalThis.confirm(
+      descendantCount > 0
+        ? `Delete "${selectedNode.label}" and ${descendantCount} descendant${descendantCount === 1 ? "" : "s"}?`
+        : `Delete "${selectedNode.label}"?`
+    )) {
       return;
     }
 
@@ -1184,6 +1249,7 @@ export function BrainstormSpotlight({
       await refreshCanvasGraph(canvasId, {
         preferredSelectedNodeId: null
       });
+      setError(null);
       setFeedback(`Removed "${selectedNode.label}".`);
       setSelectedNodeId(null);
       setConnectMode(false);
@@ -1200,16 +1266,18 @@ export function BrainstormSpotlight({
       connectMode &&
       selectedNode &&
       selectedCanvasIdForActions &&
-      node.id !== selectedNode.id &&
       selectedGraph
     ) {
+      if (node.id === selectedNode.id) {
+        return;
+      }
       if (connectBlockedNodeIds.has(node.id as BrainstormNode["id"])) {
         setError("A node cannot be moved under one of its own descendants.");
         return;
       }
       setReparentTarget({ nodeId: node.id as BrainstormNode["id"] });
+      setError(null);
       setFeedback(`Ready to move "${selectedNode.label}" under "${node.label}". Press Enter to confirm.`);
-      workspaceRef.current?.focus();
 
       return;
     }
@@ -1218,8 +1286,8 @@ export function BrainstormSpotlight({
     if (connectMode) {
       setReparentTarget({ nodeId: node.id as BrainstormNode["id"] });
     }
+    setError(null);
     setFeedback(null);
-    workspaceRef.current?.focus();
   }
 
   function handleNodePointerDown(
@@ -1228,7 +1296,13 @@ export function BrainstormSpotlight({
   ) {
     const selectedNodeRecord = nodesById.get(node.id as BrainstormNode["id"]);
 
-    if (!selectedNodeRecord || !selectedCanvasIdForActions || connectMode) {
+    if (
+      !selectedNodeRecord ||
+      !selectedCanvasIdForActions ||
+      connectMode ||
+      event.button !== 0 ||
+      event.pointerType === "touch"
+    ) {
       return;
     }
 
@@ -1253,10 +1327,13 @@ export function BrainstormSpotlight({
 
     setSelectedNodeId(node.id as BrainstormNode["id"]);
     setDraggingNodeId(null);
-    workspaceRef.current?.focus();
   }
 
   function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || event.pointerType === "touch") {
+      return;
+    }
+
     if (
       event.target instanceof HTMLElement &&
       event.target.closest(".brainstorm-node")
@@ -1285,7 +1362,10 @@ export function BrainstormSpotlight({
       return;
     }
 
-    if (connectBlockedNodeIds.has(reparentTarget.nodeId)) {
+    if (
+      reparentTarget.nodeId === selectedNode.id ||
+      connectBlockedNodeIds.has(reparentTarget.nodeId)
+    ) {
       setError("A node cannot be moved under one of its own descendants.");
       return;
     }
@@ -1306,6 +1386,7 @@ export function BrainstormSpotlight({
       setFeedback(
         `Moved "${selectedNode.label}" under "${nodesById.get(reparentTarget.nodeId)?.label ?? "the selected parent"}".`
       );
+      setError(null);
       setConnectMode(false);
       setReparentTarget(null);
       workspaceRef.current?.focus();
@@ -1441,9 +1522,9 @@ export function BrainstormSpotlight({
       onKeyDown={(event) => void handleKeyDown(event)}
       tabIndex={0}
     >
-      {loading ? <p className="callout">Loading canvases…</p> : null}
-      {error ? <p className="callout callout--error">{error}</p> : null}
-      {feedback ? <p className="callout">{feedback}</p> : null}
+      {loading ? <p className="callout" role="status" aria-live="polite">Loading canvases…</p> : null}
+      {error ? <p className="callout callout--error" role="alert">{error}</p> : null}
+      {feedback ? <p className="callout" role="status" aria-live="polite">{feedback}</p> : null}
 
       <div className="brainstorm-layout">
         <aside className="brainstorm-sidebar">
@@ -1470,7 +1551,7 @@ export function BrainstormSpotlight({
                 >
                   <strong>{canvas.name}</strong>
                   <span>
-                    {canvas.graphLoaded ? `${canvas.nodeCount} nodes` : "Not loaded"}
+                    {canvas.graphLoaded ? `${canvas.nodeCount} nodes` : "Open"}
                   </span>
                 </button>
               ))}
@@ -1509,24 +1590,40 @@ export function BrainstormSpotlight({
             )}
 
             <ul className="brainstorm-shortcuts">
-              <li>
-                <code>N</code> add root
-              </li>
-              <li>
-                <code>C</code> add child
-              </li>
-              <li>
-                <code>A</code> add sibling
-              </li>
-              <li>
-                <code>Enter</code> edit
-              </li>
-              <li>
-                <code>M</code> move under
-              </li>
-              <li>
-                <code>Delete</code> remove
-              </li>
+              {connectMode ? (
+                <>
+                  <li>
+                    <code>↑ ↓</code> choose parent
+                  </li>
+                  <li>
+                    <code>Enter</code> apply move
+                  </li>
+                  <li>
+                    <code>Esc</code> cancel
+                  </li>
+                </>
+              ) : (
+                <>
+                  <li>
+                    <code>N</code> add root
+                  </li>
+                  <li>
+                    <code>C</code> add child
+                  </li>
+                  <li>
+                    <code>A</code> add sibling
+                  </li>
+                  <li>
+                    <code>Enter</code> edit
+                  </li>
+                  <li>
+                    <code>M</code> move under
+                  </li>
+                  <li>
+                    <code>Delete</code> remove
+                  </li>
+                </>
+              )}
             </ul>
           </section>
         </aside>
@@ -1648,7 +1745,7 @@ export function BrainstormSpotlight({
           </div>
 
           {graphLoadingId === selectedCanvasIdForActions ? (
-            <p className="callout">Refreshing canvas…</p>
+            <p className="callout" role="status" aria-live="polite">Refreshing canvas…</p>
           ) : null}
 
           <BrainstormCanvasSurface
@@ -1658,6 +1755,7 @@ export function BrainstormSpotlight({
             reparentTargetNodeId={reparentTarget?.nodeId}
             connectMode={connectMode}
             draggingNodeId={draggingNodeId ?? undefined}
+            panning={isPanning}
             blockedNodeIds={connectBlockedNodeIds}
             viewportOffset={viewportOffset}
             emptyTitle={isGraphLoading ? "Loading canvas" : "Mind-map canvas"}
@@ -1678,7 +1776,11 @@ export function BrainstormSpotlight({
               workspaceRef.current?.focus();
             }}
             onCanvasPointerDown={handleCanvasPointerDown}
-            onEmptyPrimaryAction={() => openNodeEditor("create-root")}
+            onEmptyPrimaryAction={
+              selectedCanvasIdForActions && !isGraphLoading
+                ? () => openNodeEditor("create-root")
+                : undefined
+            }
             onNodeClick={(node) => void handleNodeClick(node)}
             onNodePointerDown={handleNodePointerDown}
             renderNodeMeta={(node) => {
@@ -1691,8 +1793,17 @@ export function BrainstormSpotlight({
           />
 
           <p className="brainstorm-footer-hint">
-            Arrow keys move the selected branch. <code>C</code> creates a child, <code>A</code> creates a sibling,
-            <code>N</code> creates a root, <code>Enter</code> edits, and <code>M</code> toggles move-under mode.
+            {connectMode ? (
+              <>
+                Click or cycle to a valid parent, then use <code>Enter</code> or <code>→</code> to apply.
+                <code>Esc</code> cancels move-under mode.
+              </>
+            ) : (
+              <>
+                Arrow keys move the selected branch. <code>C</code> creates a child, <code>A</code> creates a sibling,
+                <code>N</code> creates a root, <code>Enter</code> edits, and <code>M</code> toggles move-under mode.
+              </>
+            )}
           </p>
         </section>
       </div>
@@ -1701,6 +1812,7 @@ export function BrainstormSpotlight({
         <BrainstormNodeModal
           state={editorState}
           draft={editorDraft}
+          dirty={!isSameNodeDraft(editorDraft, editorInitialDraft)}
           pending={pendingAction === "node"}
           parentLabel={
             editorState.mode === "create-child"
@@ -1710,10 +1822,7 @@ export function BrainstormSpotlight({
                 : undefined
           }
           onDraftChange={setEditorDraft}
-          onCancel={() => {
-            setEditorState(null);
-            workspaceRef.current?.focus();
-          }}
+          onCancel={closeNodeEditor}
           onSubmit={() => {
             void submitNodeEditor();
           }}

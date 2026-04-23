@@ -15,6 +15,7 @@ export interface BrainstormCanvasSurfaceProps {
   readonly reparentTargetNodeId?: string;
   readonly connectMode?: boolean;
   readonly draggingNodeId?: string;
+  readonly panning?: boolean;
   readonly blockedNodeIds?: ReadonlySet<string>;
   readonly viewportOffset: {
     readonly x: number;
@@ -41,6 +42,7 @@ export function BrainstormCanvasSurface({
   reparentTargetNodeId,
   connectMode = false,
   draggingNodeId,
+  panning = false,
   blockedNodeIds,
   viewportOffset,
   emptyMessage,
@@ -88,7 +90,13 @@ export function BrainstormCanvasSurface({
 
   return (
     <div
-      className={connectMode ? "brainstorm-canvas brainstorm-canvas--connect" : "brainstorm-canvas"}
+      className={[
+        "brainstorm-canvas",
+        connectMode ? "brainstorm-canvas--connect" : "",
+        panning ? "brainstorm-canvas--panning" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
       onClick={onCanvasClick}
       onPointerDown={onCanvasPointerDown}
     >
@@ -142,6 +150,7 @@ export function BrainstormCanvasSurface({
             <button
               key={node.id}
               type="button"
+              data-brainstorm-hotkeys="allow"
               className={className}
               style={{
                 left: coordinates.x + viewportOffset.x,

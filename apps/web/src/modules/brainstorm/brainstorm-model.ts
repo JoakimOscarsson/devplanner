@@ -156,8 +156,6 @@ export function interpretBrainstormHotkey(input: {
   switch (input.key) {
     case "n":
     case "N":
-    case "r":
-    case "R":
       return "compose-root";
     case "c":
     case "C":
