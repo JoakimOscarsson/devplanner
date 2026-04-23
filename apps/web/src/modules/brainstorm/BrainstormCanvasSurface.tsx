@@ -34,6 +34,7 @@ import {
 
 export interface BrainstormCanvasSurfaceHandle {
   fitView(): void;
+  focusNode(nodeId: string): void;
 }
 
 export interface BrainstormCanvasSurfaceProps {
@@ -73,6 +74,7 @@ interface BrainstormRFNodeData extends Record<string, unknown> {
   readonly metaNode: ReactNode;
   readonly onFocusNode?: (node: GraphNodeViewModel) => void;
   readonly onClickNode?: (node: GraphNodeViewModel) => void;
+  readonly registerNodeElement?: (nodeId: string, element: HTMLDivElement | null) => void;
 }
 
 type BrainstormRFNode = Node<BrainstormRFNodeData, "brainstorm">;
@@ -97,6 +99,9 @@ const BrainstormNodeView = memo(function BrainstormNodeView({
 
   return (
     <div
+      ref={(element) => {
+        data.registerNodeElement?.(view.id, element);
+      }}
       className={className}
       data-brainstorm-hotkeys="allow"
       aria-label={isSelected ? `${view.label}, selected` : view.label}
@@ -173,6 +178,7 @@ function BrainstormCanvasFlow({
   const reactFlow = useReactFlow();
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
+  const nodeElementRefs = useRef(new Map<string, HTMLDivElement>());
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
 
   useImperativeHandle(
@@ -180,6 +186,9 @@ function BrainstormCanvasFlow({
     () => ({
       fitView() {
         reactFlow.fitView({ padding: 0.24, duration: 240 });
+      },
+      focusNode(nodeId: string) {
+        nodeElementRefs.current.get(nodeId)?.focus();
       }
     }),
     [reactFlow]
@@ -202,7 +211,14 @@ function BrainstormCanvasFlow({
         isDragging: draggingNodeId === node.id,
         metaNode: renderNodeMeta ? renderNodeMeta(node) : null,
         onFocusNode: onNodeFocus,
-        onClickNode: onNodeClick
+        onClickNode: onNodeClick,
+        registerNodeElement(nodeId, element) {
+          if (element) {
+            nodeElementRefs.current.set(nodeId, element);
+            return;
+          }
+          nodeElementRefs.current.delete(nodeId);
+        }
       }
     }));
   }, [
@@ -358,7 +374,12 @@ function BrainstormCanvasFlow({
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
       </ReactFlow>
       {nodes.length === 0 ? (
-        <div className="brainstorm-canvas__empty">
+        <div
+          className="brainstorm-canvas__empty"
+          onClick={() => {
+            onEmptyPrimaryAction?.();
+          }}
+        >
           <strong>{emptyTitle}</strong>
           <p>{emptyMessage}</p>
           {onEmptyPrimaryAction ? (

@@ -64,6 +64,14 @@ interface DragPreviewState {
   readonly originPositions: ReadonlyMap<BrainstormNode["id"], BrainstormPosition>;
 }
 
+interface ConfirmState {
+  readonly title: string;
+  readonly message: string;
+  readonly confirmLabel: string;
+  readonly tone?: "danger" | "neutral";
+  readonly onConfirm: () => void;
+}
+
 export interface BrainstormSpotlightProps {
   readonly module?: ModuleCapability;
   readonly gatewayBaseUrl?: string;
@@ -97,7 +105,6 @@ function isTypingTarget(target: EventTarget | null) {
     tagName === "input" ||
     tagName === "textarea" ||
     tagName === "select" ||
-    tagName === "button" ||
     tagName === "a" ||
     target.isContentEditable
   );
@@ -410,6 +417,50 @@ function BrainstormNodeModal({
   );
 }
 
+function BrainstormConfirmModal({
+  state,
+  onCancel,
+  pending = false
+}: {
+  readonly state: ConfirmState;
+  readonly onCancel: () => void;
+  readonly pending?: boolean;
+}) {
+  return (
+    <div className="brainstorm-modal-backdrop" role="presentation">
+      <div
+        className="brainstorm-modal brainstorm-modal--confirm"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="brainstorm-confirm-title"
+        aria-describedby="brainstorm-confirm-message"
+      >
+        <div className="brainstorm-modal__header">
+          <h2 id="brainstorm-confirm-title">{state.title}</h2>
+          <p id="brainstorm-confirm-message">{state.message}</p>
+        </div>
+        <div className="brainstorm-modal__actions">
+          <button type="button" onClick={onCancel} disabled={pending}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={
+              state.tone === "danger"
+                ? "brainstorm-modal__danger"
+                : undefined
+            }
+            onClick={state.onConfirm}
+            disabled={pending}
+          >
+            {state.confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function BrainstormSpotlight({
   module,
   gatewayBaseUrl = gatewayUrl,
@@ -441,6 +492,7 @@ export function BrainstormSpotlight({
   const [editorInitialDraft, setEditorInitialDraft] = useState<NodeEditorDraft>(
     createEmptyNodeDraft
   );
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const canvasHandleRef = useRef<BrainstormCanvasSurfaceHandle | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -711,6 +763,21 @@ export function BrainstormSpotlight({
     }
 
     if (activeSnapshot.graphsByCanvasId[canvasId]) {
+      const nextSelectedNodeId =
+        [...activeSnapshot.graphsByCanvasId[canvasId].nodes]
+          .sort((left, right) => {
+            if (left.position.x !== right.position.x) {
+              return left.position.x - right.position.x;
+            }
+            if (left.position.y !== right.position.y) {
+              return left.position.y - right.position.y;
+            }
+            return left.label.localeCompare(right.label, undefined, {
+              sensitivity: "base"
+            });
+          })[0]?.id ?? null;
+      setSelectedNodeId(nextSelectedNodeId);
+      focusCanvasNode(nextSelectedNodeId);
       return;
     }
 
@@ -775,6 +842,15 @@ export function BrainstormSpotlight({
     }
   }
 
+  function focusCanvasNode(nodeId: BrainstormNode["id"] | null) {
+    if (!nodeId) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      canvasHandleRef.current?.focusNode(nodeId);
+    });
+  }
+
   function openNodeEditor(mode: NodeEditorMode) {
     if (!selectedCanvasIdForActions) {
       return;
@@ -833,11 +909,19 @@ export function BrainstormSpotlight({
     }
 
     if (!isSameNodeDraft(editorDraft, editorInitialDraft)) {
-      const confirmed = globalThis.confirm("Discard your unsaved node changes?");
-
-      if (!confirmed) {
-        return;
-      }
+      setConfirmState({
+        title: "Discard changes?",
+        message: "Your unsaved node edits will be lost.",
+        confirmLabel: "Discard",
+        onConfirm() {
+          setConfirmState(null);
+          setEditorState(null);
+          setEditorDraft(createEmptyNodeDraft());
+          setEditorInitialDraft(createEmptyNodeDraft());
+          restoreFocusAfterEditorClose();
+        }
+      });
+      return;
     }
 
     setEditorState(null);
@@ -975,35 +1059,42 @@ export function BrainstormSpotlight({
       selectedGraph?.nodes ?? [],
       selectedNode.id
     ).size;
+    const directChildCount =
+      selectedGraph?.nodes.filter((node) => node.parentNodeId === selectedNode.id).length ?? 0;
 
-    if (!globalThis.confirm(
-      descendantCount > 0
-        ? `Delete "${selectedNode.label}"? ${descendantCount} child node${descendantCount === 1 ? "" : "s"} will stay on the canvas and move to the root level.`
-        : `Delete "${selectedNode.label}"?`
-    )) {
-      return;
-    }
+    setConfirmState({
+      title: `Delete "${selectedNode.label}"?`,
+      message:
+        directChildCount > 0
+          ? `${directChildCount} direct child node${directChildCount === 1 ? "" : "s"} will move to the root level.${descendantCount > directChildCount ? " Deeper descendants stay nested under those moved children." : ""}`
+          : "This removes the selected node from the canvas.",
+      confirmLabel: "Delete",
+      tone: "danger",
+      onConfirm() {
+        setConfirmState(null);
+        void (async () => {
+          setPendingAction("mutation");
 
-    setPendingAction("mutation");
-
-    try {
-      await gateway.deleteNode({
-        canvasId,
-        nodeId: selectedNode.id
-      });
-      await refreshCanvasGraph(canvasId, {
-        preferredSelectedNodeId: null
-      });
-      setError(null);
-      setFeedback(`Removed "${selectedNode.label}".`);
-      setSelectedNodeId(null);
-      setConnectMode(false);
-      workspaceRef.current?.focus();
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setPendingAction(null);
-    }
+          try {
+            await gateway.deleteNode({
+              canvasId,
+              nodeId: selectedNode.id
+            });
+            await refreshCanvasGraph(canvasId, {
+              preferredSelectedNodeId: null
+            });
+            setError(null);
+            setFeedback(`Removed "${selectedNode.label}".`);
+            setSelectedNodeId(null);
+            setConnectMode(false);
+          } catch (requestError) {
+            setError(getErrorMessage(requestError));
+          } finally {
+            setPendingAction(null);
+          }
+        })();
+      }
+    });
   }
 
   function previewReparentTarget(nodeId: BrainstormNode["id"]) {
@@ -1030,11 +1121,11 @@ export function BrainstormSpotlight({
         return;
       }
       previewReparentTarget(node.id as BrainstormNode["id"]);
-      await applyReparentTarget(node.id as BrainstormNode["id"]);
       return;
     }
 
     setSelectedNodeId(node.id as BrainstormNode["id"]);
+    focusCanvasNode(node.id as BrainstormNode["id"]);
     if (connectMode) {
       setReparentTarget({ nodeId: node.id as BrainstormNode["id"] });
     }
@@ -1249,17 +1340,20 @@ export function BrainstormSpotlight({
       }
 
       if (!selectedNodeId) {
-        setSelectedNodeId(
+        const nextNodeId =
           direction === "next"
             ? orderedNodeIds[0] ?? null
-            : orderedNodeIds[orderedNodeIds.length - 1] ?? null
-        );
+            : orderedNodeIds[orderedNodeIds.length - 1] ?? null;
+        setSelectedNodeId(nextNodeId);
+        focusCanvasNode(nextNodeId);
         return;
       }
 
       const currentIndex = orderedNodeIds.indexOf(selectedNodeId);
       if (currentIndex === -1) {
-        setSelectedNodeId(orderedNodeIds[0] ?? null);
+        const firstNodeId = orderedNodeIds[0] ?? null;
+        setSelectedNodeId(firstNodeId);
+        focusCanvasNode(firstNodeId);
         return;
       }
 
@@ -1267,7 +1361,9 @@ export function BrainstormSpotlight({
         direction === "next"
           ? (currentIndex + 1) % orderedNodeIds.length
           : (currentIndex - 1 + orderedNodeIds.length) % orderedNodeIds.length;
-      setSelectedNodeId(orderedNodeIds[nextIndex] ?? null);
+      const nextNodeId = orderedNodeIds[nextIndex] ?? null;
+      setSelectedNodeId(nextNodeId);
+      focusCanvasNode(nextNodeId);
     };
 
     switch (event.key) {
@@ -1343,6 +1439,7 @@ export function BrainstormSpotlight({
         } else if (selectedNode?.parentNodeId) {
           event.preventDefault();
           setSelectedNodeId(selectedNode.parentNodeId);
+          focusCanvasNode(selectedNode.parentNodeId);
         }
         break;
       case "ArrowRight":
@@ -1367,6 +1464,7 @@ export function BrainstormSpotlight({
           if (firstChild) {
             event.preventDefault();
             setSelectedNodeId(firstChild.id);
+            focusCanvasNode(firstChild.id);
           }
         }
         break;
@@ -1626,8 +1724,8 @@ export function BrainstormSpotlight({
 
           <div className="brainstorm-toolbar__hint">
             {connectMode
-              ? "Choose a new parent with the mouse or arrow keys, then press Enter or Right Arrow to apply. Escape cancels."
-              : "Drag empty space to pan. Scroll to zoom. Drag a node to move it; Tidy layout re-flows everything."}
+              ? "Click or tap a node to preview the new parent, then use Apply move, Enter, or Right Arrow to confirm. Escape cancels."
+              : "Drag empty space to pan. Pinch or scroll to zoom. Drag a node to move its branch; Tidy layout re-flows everything."}
           </div>
 
           {graphLoadingId === selectedCanvasIdForActions ? (
@@ -1717,6 +1815,18 @@ export function BrainstormSpotlight({
           onSubmit={() => {
             void submitNodeEditor();
           }}
+        />
+      ) : null}
+      {confirmState ? (
+        <BrainstormConfirmModal
+          state={confirmState}
+          onCancel={() => {
+            if (pendingAction === "mutation") {
+              return;
+            }
+            setConfirmState(null);
+          }}
+          pending={pendingAction === "mutation"}
         />
       ) : null}
     </article>

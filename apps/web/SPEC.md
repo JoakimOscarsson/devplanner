@@ -9,5 +9,6 @@
 - Brainstorm node typing should stay lightweight: use flexible tags instead of a fixed category picker, and treat the `skill` tag as the signal for skill-tree promotion suggestions.
 - The brainstorm canvas should stay usable on touch devices too: panning empty space and dragging nodes must not silently collapse into a desktop-only interaction model.
 - Brainstorm destructive actions should bias toward trust over speed: branch deletes confirm first, and failed optimistic moves should reconcile with persisted state rather than leaving the canvas in a fake saved state.
+- Brainstorm confirmation and dirty-dismiss flows should stay inside the app UI rather than using browser-native dialogs, so focus, testing, and mobile behavior remain predictable.
 - Brainstorm modal editing should protect user input by trapping focus, blocking dismissal while requests are pending, and confirming before dirty drafts are discarded.
 - Brainstorm command handling should serialize writes to the active selection so repeat keys or double-clicks cannot queue contradictory mutations against the same branch.

@@ -37,5 +37,7 @@
 - The brainstorm canvas now runs on React Flow with ELK-powered tidy layout, keeps the tree flowing left-to-right, and reserves full re-layout for the explicit `Tidy layout` action instead of reflowing every structural edit.
 - Brainstorm nodes are keyboard-focusable inside the canvas itself, `ArrowUp` and `ArrowDown` cycle visible nodes when no reparent flow is active, and `ArrowLeft`/`ArrowRight` move between parent and first-child relationships in the current branch.
 - Dragging a brainstorm parent now drags its visible subtree together and persists the moved branch as one mutation batch instead of writing only the origin node.
+- Brainstorm connect mode is staged again: clicking or tapping a target previews it, while `Apply move`, `Enter`, or `ArrowRight` performs the actual reparent.
+- Brainstorm dirty-dismiss and delete confirmations now stay inside the app shell instead of dropping to browser-native `confirm()` dialogs, and the node editor/modal shell now scrolls within the viewport on shorter screens.
 - Planner goals initialize an empty local breakdown shell on creation so the first added plan item or evidence note appears immediately.
 - Recommendation manual runs refresh the visible feed/provider snapshot before appending the run entry, and recent decision history prefers recommendation titles over raw ids.
