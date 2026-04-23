@@ -834,6 +834,7 @@ export function BrainstormSpotlight({
     options: {
       readonly preferredSelectedNodeId?: BrainstormNode["id"] | null;
       readonly autoLayout?: boolean;
+      readonly surfaceError?: boolean;
     } = {}
   ) {
     const requestSequence = refreshSequenceRef.current + 1;
@@ -864,8 +865,11 @@ export function BrainstormSpotlight({
       setError(null);
     } catch (requestError) {
       if (refreshSequenceRef.current === requestSequence) {
-        setError(getErrorMessage(requestError));
+        if (options.surfaceError ?? true) {
+          setError(getErrorMessage(requestError));
+        }
       }
+      throw requestError;
     } finally {
       if (refreshSequenceRef.current === requestSequence) {
         setGraphLoadingId(null);
@@ -949,7 +953,10 @@ export function BrainstormSpotlight({
       setSelectedNodeId(nextSelectedNodeId);
       focusCanvasNode(nextSelectedNodeId);
       void refreshCanvasGraph(canvasId, {
-        preferredSelectedNodeId: nextSelectedNodeId
+        preferredSelectedNodeId: nextSelectedNodeId,
+        surfaceError: false
+      }).catch(() => {
+        pushToast("Showing cached canvas. Refresh failed.", "error");
       });
       return;
     }
@@ -1138,9 +1145,13 @@ export function BrainstormSpotlight({
           tag: formatTagList(parseTagList(editorDraft.tag)),
           description: editorDraft.description.trim().length > 0 ? editorDraft.description : null
         });
-        await refreshCanvasGraph(selectedCanvasIdForActions, {
-          preferredSelectedNodeId: editorState.nodeId
-        });
+        try {
+          await refreshCanvasGraph(selectedCanvasIdForActions, {
+            preferredSelectedNodeId: editorState.nodeId
+          });
+        } catch {
+          pushToast("Saved, but the canvas could not refresh. Reopen it to sync.", "error");
+        }
         setError(null);
         setFeedback(`Updated "${label}".`);
       } else if (selectedGraph) {
@@ -1174,9 +1185,13 @@ export function BrainstormSpotlight({
             ? (response.node.id as BrainstormNode["id"])
             : null;
 
-        await refreshCanvasGraph(selectedCanvasIdForActions, {
-          preferredSelectedNodeId: createdNodeId
-        });
+        try {
+          await refreshCanvasGraph(selectedCanvasIdForActions, {
+            preferredSelectedNodeId: createdNodeId
+          });
+        } catch {
+          pushToast("Added, but the canvas could not refresh. Reopen it to sync.", "error");
+        }
         setFeedback(
           editorState.mode === "create-root"
             ? `Added "${label}" to ${selectedCanvas?.name ?? "the canvas"}.`
@@ -2049,15 +2064,19 @@ export function BrainstormSpotlight({
               isGraphLoading
                 ? "Loading nodes and connections for this canvas…"
                 : selectedCanvas
-                  ? "Add a root node to begin the mind-map. Children and sibling nodes stay connected automatically."
+                  ? "Use Add root to begin the mind-map. Children and sibling nodes stay connected automatically."
                   : "Create a canvas in the sidebar to begin your first mind-map."
             }
             loading={isGraphLoading}
             onCanvasClick={() => {
+              if (connectMode || linkMode) {
+                setConnectMode(false);
+                setLinkMode(false);
+                setReparentTarget(null);
+                setFeedback(null);
+                return;
+              }
               setSelectedNodeId(null);
-              setConnectMode(false);
-              setLinkMode(false);
-              setReparentTarget(null);
               setFeedback(null);
             }}
             onEmptyPrimaryAction={

@@ -2,6 +2,7 @@ import {
   forwardRef,
   memo,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -185,6 +186,22 @@ function BrainstormCanvasFlow({
   nodesRef.current = nodes;
   const nodeElementRefs = useRef(new Map<string, HTMLDivElement>());
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [coarsePointer, setCoarsePointer] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia?.("(pointer: coarse)");
+    if (!query) {
+      return;
+    }
+
+    const updateCoarsePointer = () => {
+      setCoarsePointer(query.matches);
+    };
+
+    updateCoarsePointer();
+    query.addEventListener("change", updateCoarsePointer);
+    return () => query.removeEventListener("change", updateCoarsePointer);
+  }, []);
 
   useImperativeHandle(
     forwardedRef,
@@ -204,7 +221,7 @@ function BrainstormCanvasFlow({
       id: node.id,
       type: "brainstorm",
       position: { x: node.position.x, y: node.position.y },
-      draggable: !connectMode && !disabled,
+      draggable: !connectMode && !disabled && !coarsePointer,
       selectable: true,
       selected: node.id === selectedNodeId,
       data: {
@@ -230,6 +247,7 @@ function BrainstormCanvasFlow({
   }, [
     draggingNodeId,
     nodes,
+    coarsePointer,
     selectedNodeId,
     reparentTargetNodeId,
     connectMode,
@@ -371,9 +389,6 @@ function BrainstormCanvasFlow({
       {nodes.length === 0 ? (
         <div
           className="brainstorm-canvas__empty"
-          onClick={() => {
-            onEmptyPrimaryAction?.();
-          }}
         >
           <strong>{emptyTitle}</strong>
           <p>{emptyMessage}</p>

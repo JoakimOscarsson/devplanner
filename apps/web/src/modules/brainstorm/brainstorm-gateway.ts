@@ -110,7 +110,29 @@ function createFetchRequest(baseUrl: string, fetcher: typeof fetch) {
     const response = await fetcher(`${baseUrl}${path}`, init);
 
     if (!response.ok) {
-      throw new Error(`Gateway request failed for ${path} with ${response.status}.`);
+      let message = `Gateway request failed for ${path} with ${response.status}.`;
+      try {
+        const payload = (await response.json()) as {
+          readonly message?: unknown;
+          readonly error?: unknown;
+        };
+        const nestedError =
+          typeof payload.error === "object" && payload.error !== null
+            ? (payload.error as { readonly message?: unknown })
+            : null;
+        const payloadMessage =
+          typeof payload.message === "string"
+            ? payload.message
+            : typeof nestedError?.message === "string"
+              ? nestedError.message
+              : null;
+        if (payloadMessage) {
+          message = payloadMessage;
+        }
+      } catch {
+        // Keep the status fallback when the response body is not JSON.
+      }
+      throw new Error(message);
     }
 
     return (await response.json()) as TPayload;
