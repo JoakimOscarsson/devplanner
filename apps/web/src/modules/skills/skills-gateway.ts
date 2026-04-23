@@ -2,7 +2,6 @@ import type {
   Canvas,
   GraphEdge,
   GraphNode,
-  GraphNodeCategory,
   Skill
 } from "@pdp-helper/contracts-graph";
 import type { Recommendation } from "@pdp-helper/contracts-recommendation";
@@ -90,8 +89,44 @@ export interface PromotionCandidate {
   readonly canvasId: Canvas["id"];
   readonly canvasName: string;
   readonly label: string;
-  readonly category: GraphNodeCategory;
+  readonly tags: readonly string[];
   readonly parentNodeId?: GraphNode["parentNodeId"];
+}
+
+function parseNodeTags(node: Pick<GraphNode, "metadata">) {
+  const explicitTags = node.metadata?.tags;
+
+  if (Array.isArray(explicitTags)) {
+    return explicitTags.filter((entry): entry is string => typeof entry === "string");
+  }
+
+  const rawTag = node.metadata?.tag;
+
+  if (typeof rawTag !== "string") {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const tags: string[] = [];
+
+  for (const rawEntry of rawTag.split(/[;,]/g)) {
+    const tag = rawEntry.trim();
+
+    if (tag.length === 0) {
+      continue;
+    }
+
+    const normalized = tag.toLowerCase();
+
+    if (seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    tags.push(tag);
+  }
+
+  return tags;
 }
 
 export interface RecommendationSkillSuggestion {
@@ -228,15 +263,20 @@ export function createSkillsGatewayPort(
 
       return graphs.flatMap(({ canvas, graph }) =>
         graph.nodes
-          .filter((node) => node.role === "brainstorm" && node.category !== "recommendation")
+          .filter((node) => node.role === "brainstorm")
+          .map((node) => ({
+            node,
+            tags: parseNodeTags(node)
+          }))
+          .filter(({ tags }) => tags.some((tag) => tag.toLowerCase() === "skill"))
           .map(
-            (node) =>
+            ({ node, tags }) =>
               ({
                 nodeId: node.id,
                 canvasId: canvas.id,
                 canvasName: canvas.name,
                 label: node.label,
-                category: node.category,
+                tags,
                 parentNodeId: node.parentNodeId
               }) satisfies PromotionCandidate
           )

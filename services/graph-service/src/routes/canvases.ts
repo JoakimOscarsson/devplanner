@@ -1,10 +1,8 @@
 import type {
   CanvasMode,
   GraphNode,
-  GraphNodePosition,
-  UserNodeCategory
+  GraphNodePosition
 } from "@pdp-helper/contracts-graph";
-import { USER_NODE_CATEGORY_VALUES } from "@pdp-helper/contracts-graph";
 import type { ValidationIssue } from "@pdp-helper/contracts-core";
 import type { RouteDefinition } from "@pdp-helper/runtime-node";
 import { createDomainError, errorResponse, json, readBody } from "@pdp-helper/runtime-node";
@@ -31,7 +29,7 @@ interface UpdateCanvasBody {
 
 interface CreateNodeBody {
   label: string;
-  category: UserNodeCategory;
+  tag?: string;
   description?: string;
   parentNodeId?: GraphNode["id"];
   position?: GraphNodePosition;
@@ -39,13 +37,11 @@ interface CreateNodeBody {
 
 interface UpdateNodeBody {
   label?: string;
-  category?: UserNodeCategory;
+  tag?: string | null;
   description?: string | null;
   parentNodeId?: GraphNode["id"] | null;
   position?: GraphNodePosition;
 }
-
-const userNodeCategories = new Set<string>(USER_NODE_CATEGORY_VALUES);
 
 function notFoundError(entityType: string, entityId: string) {
   return createDomainError(
@@ -197,7 +193,7 @@ function parseUpdateCanvasBody(body: Record<string, unknown>): UpdateCanvasBody 
   };
 }
 
-function parseNodeCategory(
+function parseTagInput(
   value: unknown,
   path: string,
   required: boolean,
@@ -208,23 +204,23 @@ function parseNodeCategory(
       issues.push({
         path,
         rule: "required",
-        message: "Node category is required."
+        message: "tag is required."
       });
     }
 
     return undefined;
   }
 
-  if (typeof value !== "string" || !userNodeCategories.has(value)) {
+  if (typeof value !== "string") {
     issues.push({
       path,
-      rule: "enum",
-      message: "Node category must be one of the brainstorm user categories."
+      rule: "type",
+      message: "tag must be a string when provided."
     });
     return undefined;
   }
 
-  return value as UserNodeCategory;
+  return value;
 }
 
 function parseCreateNodeBody(body: Record<string, unknown>): CreateNodeBody {
@@ -238,7 +234,7 @@ function parseCreateNodeBody(body: Record<string, unknown>): CreateNodeBody {
     });
   }
 
-  const category = parseNodeCategory(body.category, "category", true, issues);
+  const tag = parseTagInput(body.tag, "tag", false, issues);
   const position = parsePosition(body.position, "position", false, issues);
 
   if (
@@ -270,7 +266,7 @@ function parseCreateNodeBody(body: Record<string, unknown>): CreateNodeBody {
 
   return {
     label: body.label as string,
-    category: category!,
+    ...(tag !== undefined ? { tag } : {}),
     ...(position ? { position } : {}),
     ...(typeof body.description === "string" ? { description: body.description } : {}),
     ...(typeof body.parentNodeId === "string"
@@ -281,7 +277,7 @@ function parseCreateNodeBody(body: Record<string, unknown>): CreateNodeBody {
 
 function parseUpdateNodeBody(body: Record<string, unknown>): UpdateNodeBody {
   const issues: ValidationIssue[] = [];
-  const category = parseNodeCategory(body.category, "category", false, issues);
+  const tag = parseTagInput(body.tag, "tag", false, issues);
   const position = parsePosition(body.position, "position", false, issues);
 
   if (
@@ -321,7 +317,7 @@ function parseUpdateNodeBody(body: Record<string, unknown>): UpdateNodeBody {
 
   if (
     body.label === undefined &&
-    body.category === undefined &&
+    body.tag === undefined &&
     body.description === undefined &&
     body.position === undefined &&
     body.parentNodeId === undefined
@@ -339,7 +335,7 @@ function parseUpdateNodeBody(body: Record<string, unknown>): UpdateNodeBody {
 
   return {
     ...(typeof body.label === "string" ? { label: body.label } : {}),
-    ...(category ? { category } : {}),
+    ...(body.tag !== undefined ? { tag: tag ?? null } : {}),
     ...(body.description !== undefined ? { description: body.description as string | null } : {}),
     ...(body.parentNodeId !== undefined
       ? { parentNodeId: body.parentNodeId as GraphNode["id"] | null }

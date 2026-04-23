@@ -29,6 +29,7 @@
 
 ## Brainstorm canvas behavior
 - `POST /v1/canvases` creates brainstorm canvases only; the web app may initialize a local empty graph for immediate first-node creation before the first explicit graph fetch returns.
+- Brainstorm node create and update payloads now use a free-form `tag` string instead of a fixed category enum. The graph service persists it as both `metadata.tag` and `metadata.tags`, and derives the internal brainstorm node classification from whether the tag list includes `skill`.
 - `PATCH /v1/canvases/:canvasId/nodes/:nodeId` rejects `parentNodeId` changes that would move a brainstorm node into its own subtree.
 - `DELETE /v1/canvases/:canvasId/nodes/:nodeId` detaches direct children to the root level and removes incident edges for the deleted node.
 

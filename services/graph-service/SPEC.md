@@ -4,7 +4,7 @@
 The graph service is the source of truth for brainstorm canvases and the skill graph. It owns graph mutation rules, duplicate-skill checks, canonical skills, skill references, and storage of recommendation-type graph nodes.
 
 ## Responsibilities
-- Persist canvases, nodes, edges, canonical skills, and skill references.
+- Persist canvases, tagged brainstorm nodes, edges, canonical skills, and skill references.
 - Support multiple brainstorm tabs/canvases per workspace.
 - Provide explicit promotion flows from brainstorm items into canonical skills.
 - Enforce duplicate-skill resolution before canonical skill creation.

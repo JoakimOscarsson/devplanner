@@ -42,7 +42,8 @@ function createNode(
   label: string,
   category: GraphNode["category"],
   position: GraphNode["position"],
-  parentNodeId?: string
+  parentNodeId?: string,
+  tag?: string
 ): GraphNode {
   return {
     id: id as GraphNode["id"],
@@ -53,6 +54,7 @@ function createNode(
     normalizedLabel: label.toLowerCase().replace(/\s+/g, "-"),
     position,
     source: "user",
+    ...(tag ? { metadata: { tag, tags: tag.split(/[;,]/g).map((entry) => entry.trim()).filter(Boolean) } } : {}),
     ...(parentNodeId ? { parentNodeId: parentNodeId as GraphNode["parentNodeId"] } : {}),
     ...auditFields
   };
@@ -89,15 +91,18 @@ function createSnapshot(): BrainstormSnapshot {
     inboxCanvas.id,
     "TypeScript",
     "skill",
-    { x: 64, y: 84 }
+    { x: 64, y: 84 },
+    undefined,
+    "skill"
   );
   const projectNode = createNode(
     "nod_brainstorm_project",
     inboxCanvas.id,
     "Portfolio rebuild",
-    "project",
+    "custom",
     { x: 232, y: 112 },
-    typeScriptNode.id
+    typeScriptNode.id,
+    "project"
   );
 
   return {
@@ -123,8 +128,10 @@ function createSnapshot(): BrainstormSnapshot {
             "nod_brainstorm_aws",
             certificationsCanvas.id,
             "AWS Developer Associate",
-            "certificate",
-            { x: 128, y: 48 }
+            "custom",
+            { x: 128, y: 48 },
+            undefined,
+            "certificate"
           )
         ],
         edges: []
@@ -225,7 +232,7 @@ describe("brainstorm module", () => {
     await port.createNode({
       canvasId: "can_a" as Canvas["id"],
       label: "System design",
-      category: "skill"
+      tag: "skill"
     });
     await port.updateNode({
       canvasId: "can_a" as Canvas["id"],
@@ -275,10 +282,10 @@ describe("brainstorm module", () => {
         },
         body: JSON.stringify({
           label: "System design",
-          category: "skill",
           role: "brainstorm",
           source: "user",
-          position: { x: 0, y: 0 }
+          position: { x: 0, y: 0 },
+          tag: "skill"
         })
       }
     );
@@ -326,15 +333,18 @@ describe("brainstorm module", () => {
             inboxCanvas.id,
             "TypeScript",
             "skill",
-            { x: 64, y: 84 }
+            { x: 64, y: 84 },
+            undefined,
+            "skill"
           ),
           createNode(
             "nod_brainstorm_project",
             inboxCanvas.id,
             "Portfolio rebuild",
-            "project",
+            "custom",
             { x: 232, y: 112 },
-            "nod_brainstorm_typescript"
+            "nod_brainstorm_typescript",
+            "project"
           )
         ],
         edges: [
@@ -444,11 +454,11 @@ describe("brainstorm module", () => {
       deriveBrainstormCreateNodeInput(graph!, {
         intent: "root",
         label: "Architecture study",
-        category: "skill"
+        tag: "skill"
       })
     ).toMatchObject({
       label: "Architecture study",
-      category: "skill",
+      tag: "skill",
       position: { x: 64, y: 272 }
     });
 
@@ -457,10 +467,11 @@ describe("brainstorm module", () => {
         intent: "child",
         anchorNodeId: "nod_brainstorm_typescript",
         label: "Review docs",
-        category: "course"
+        tag: "course"
       })
     ).toMatchObject({
       parentNodeId: "nod_brainstorm_typescript",
+      tag: "course",
       position: { x: 304, y: 272 }
     });
 
@@ -469,10 +480,11 @@ describe("brainstorm module", () => {
         intent: "sibling",
         anchorNodeId: "nod_brainstorm_project",
         label: "Ship tracker",
-        category: "project"
+        tag: "project"
       })
     ).toMatchObject({
       parentNodeId: "nod_brainstorm_typescript",
+      tag: "project",
       position: { x: 304, y: 272 }
     });
 

@@ -396,6 +396,10 @@ function normalizeSuggestionLabel(label: string) {
   return label.trim().toLowerCase();
 }
 
+function formatSuggestionTags(tags: readonly string[]) {
+  return tags.join(", ");
+}
+
 export function buildCreationSuggestions(
   promotionCandidates: readonly PromotionCandidate[],
   recommendationSuggestions: readonly RecommendationSkillSuggestion[],
@@ -409,7 +413,10 @@ export function buildCreationSuggestions(
         ({
           id: candidate.nodeId,
           label: candidate.label,
-          description: `${candidate.category} from ${candidate.canvasName}`,
+          description:
+            candidate.tags.length > 0
+              ? `${formatSuggestionTags(candidate.tags)} from ${candidate.canvasName}`
+              : `Tagged idea from ${candidate.canvasName}`,
           sourceTag: `brainstorm:${candidate.canvasName}`,
           sourceTone: "brainstorm",
           categoryId: "brainstorm",

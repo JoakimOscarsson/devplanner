@@ -103,6 +103,56 @@ const ROLE_PRIORITY: Readonly<Record<GraphNodeRole, number>> = {
   recommendation: 3
 };
 
+function parseNodeTags(node: Pick<GraphNode, "metadata">) {
+  const explicitTags = node.metadata?.tags;
+
+  if (Array.isArray(explicitTags)) {
+    const tags = explicitTags.filter((entry): entry is string => typeof entry === "string");
+
+    if (tags.length > 0) {
+      return tags;
+    }
+  }
+
+  const rawTag = node.metadata?.tag;
+
+  if (typeof rawTag !== "string") {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const tags: string[] = [];
+
+  for (const rawEntry of rawTag.split(/[;,]/g)) {
+    const tag = rawEntry.trim();
+
+    if (tag.length === 0) {
+      continue;
+    }
+
+    const normalized = tag.toLowerCase();
+
+    if (seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    tags.push(tag);
+  }
+
+  return tags;
+}
+
+function getNodeDisplayCategory(node: GraphNode) {
+  const tags = parseNodeTags(node);
+
+  if (tags.length > 0) {
+    return tags.join(", ");
+  }
+
+  return node.category;
+}
+
 export function getVisualKind(role: GraphNodeRole): NodeVisualKind {
   if (role === "recommendation") {
     return "recommendation";
@@ -119,10 +169,10 @@ export function toGraphNodeViewModel(node: GraphNode): GraphNodeViewModel {
   return {
     id: node.id,
     label: node.label,
-    category: node.category,
+    category: getNodeDisplayCategory(node),
     role: node.role,
     visualKind: getVisualKind(node.role),
-    colorToken: CATEGORY_COLOR_TOKENS[node.category],
+    colorToken: CATEGORY_COLOR_TOKENS[node.category] ?? "slate",
     description: node.description,
     parentNodeId: node.parentNodeId,
     position: node.position

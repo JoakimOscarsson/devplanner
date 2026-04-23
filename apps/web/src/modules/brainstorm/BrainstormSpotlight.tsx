@@ -31,11 +31,13 @@ import {
   deriveBrainstormCreateNodeInput,
   deriveBrainstormReparentUpdate,
   EMPTY_BRAINSTORM_SNAPSHOT,
+  formatTagList,
+  parseTagList,
+  readBrainstormNodeTags,
   type BrainstormCanvasGraph,
   type BrainstormSnapshot
 } from "./brainstorm-model";
 import {
-  USER_NODE_CATEGORIES,
   type BrainstormCanvas,
   type BrainstormNode,
   type BrainstormPosition
@@ -51,7 +53,7 @@ interface NodeEditorState {
 
 interface NodeEditorDraft {
   readonly label: string;
-  readonly category: (typeof USER_NODE_CATEGORIES)[number];
+  readonly tag: string;
   readonly description: string;
 }
 
@@ -119,7 +121,7 @@ function isTypingTarget(target: EventTarget | null) {
 function createEmptyNodeDraft(): NodeEditorDraft {
   return {
     label: "",
-    category: "skill",
+    tag: "skill",
     description: ""
   };
 }
@@ -127,7 +129,7 @@ function createEmptyNodeDraft(): NodeEditorDraft {
 function createNodeDraftFromNode(node: BrainstormNode): NodeEditorDraft {
   return {
     label: node.label,
-    category: node.category as (typeof USER_NODE_CATEGORIES)[number],
+    tag: formatTagList(readBrainstormNodeTags(node)),
     description: node.description ?? ""
   };
 }
@@ -307,7 +309,7 @@ function getViewResetOffset(
 function isSameNodeDraft(left: NodeEditorDraft, right: NodeEditorDraft) {
   return (
     left.label === right.label &&
-    left.category === right.category &&
+    left.tag === right.tag &&
     left.description === right.description
   );
 }
@@ -455,22 +457,17 @@ function BrainstormNodeModal({
           </label>
 
           <label className="skill-modal__field">
-            <span>Category</span>
-            <select
-              value={draft.category}
+            <span>Tags</span>
+            <input
+              value={draft.tag}
+              placeholder="e.g. skill, research"
               onChange={(event) =>
                 onDraftChange({
                   ...draft,
-                  category: event.target.value as (typeof USER_NODE_CATEGORIES)[number]
+                  tag: event.target.value
                 })
               }
-            >
-              {USER_NODE_CATEGORIES.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-              ))}
-            </select>
+            />
           </label>
 
           <label className="skill-modal__field">
@@ -1153,7 +1150,7 @@ export function BrainstormSpotlight({
           canvasId: selectedCanvasIdForActions,
           nodeId: editorState.nodeId,
           label,
-          category: editorDraft.category,
+          tag: formatTagList(parseTagList(editorDraft.tag)),
           description: editorDraft.description.trim().length > 0 ? editorDraft.description : null
         });
         await refreshCanvasGraph(selectedCanvasIdForActions, {
@@ -1172,7 +1169,7 @@ export function BrainstormSpotlight({
                   : "root",
             anchorNodeId: editorState.nodeId,
             label,
-            category: editorDraft.category
+            tag: formatTagList(parseTagList(editorDraft.tag))
           }),
           ...(editorDraft.description.trim().length > 0
             ? { description: editorDraft.description }
@@ -1691,12 +1688,15 @@ export function BrainstormSpotlight({
           <section className="brainstorm-sidebar__section">
             <div className="brainstorm-sidebar__header">
               <strong>Selection</strong>
-              <span>{selectedNode ? selectedNode.category : "none"}</span>
+              <span>
+                {selectedNode ? formatTagList(readBrainstormNodeTags(selectedNode)) || "untagged" : "none"}
+              </span>
             </div>
             {selectedNode ? (
               <div className="brainstorm-selection-card">
                 <strong>{selectedNode.label}</strong>
                 <span>{selectedNodeParentLabel}</span>
+                <span>{formatTagList(readBrainstormNodeTags(selectedNode)) || "Untagged"}</span>
                 {selectedNode.description ? <span>{selectedNode.description}</span> : null}
                 <span>
                   {selectedNode.position.x}, {selectedNode.position.y}

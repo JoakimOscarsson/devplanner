@@ -151,7 +151,7 @@ describe("graph-service canvas routes", () => {
         },
         body: JSON.stringify({
           label: "Event Storming",
-          category: "course",
+          tag: "course",
           description: "Workshop notes",
           position: {
             x: 180,
@@ -197,7 +197,7 @@ describe("graph-service canvas routes", () => {
         },
         body: JSON.stringify({
           label: "Event-Driven Design",
-          category: "note",
+          tag: "note",
           description: null,
           position: {
             x: 256,
@@ -212,7 +212,11 @@ describe("graph-service canvas routes", () => {
 
     expect(updateResponse.status).toBe(200);
     expect(updatePayload.node.label).toBe("Event-Driven Design");
-    expect(updatePayload.node.category).toBe("note");
+    expect(updatePayload.node.category).toBe("custom");
+    expect(updatePayload.node.metadata).toMatchObject({
+      tag: "note",
+      tags: ["note"]
+    });
     expect(updatePayload.node.description).toBeUndefined();
     expect(updatePayload.node.parentNodeId).toBeUndefined();
     expect(updatePayload.node.position).toEqual({
@@ -235,7 +239,11 @@ describe("graph-service canvas routes", () => {
     expect(updatedNode).toMatchObject({
       id: createPayload.node.id,
       label: "Event-Driven Design",
-      category: "note",
+      category: "custom",
+      metadata: {
+        tag: "note",
+        tags: ["note"]
+      },
       normalizedLabel: "event-driven-design",
       position: {
         x: 256,
@@ -299,7 +307,7 @@ describe("graph-service canvas routes", () => {
         },
         body: JSON.stringify({
           label: "Node.js runtime",
-          category: "skill",
+          tag: "skill",
           position: {
             x: 300,
             y: 100
@@ -316,7 +324,7 @@ describe("graph-service canvas routes", () => {
       },
       body: JSON.stringify({
         label: "Node event loop notes",
-        category: "note",
+        tag: "note",
         parentNodeId: "nod_brainstorm_typescript"
       })
     });
@@ -376,7 +384,7 @@ describe("graph-service canvas routes", () => {
         },
         body: JSON.stringify({
           label: "Portfolio rebuild",
-          category: "project",
+          tag: "project",
           position: {
             x: 240,
             y: 180
@@ -398,7 +406,7 @@ describe("graph-service canvas routes", () => {
         },
         body: JSON.stringify({
           label: "Architecture notes",
-          category: "note",
+          tag: "note",
           position: {
             x: 240,
             y: 260
@@ -445,7 +453,7 @@ describe("graph-service canvas routes", () => {
       },
       body: JSON.stringify({
         label: "Portfolio rebuild",
-        category: "project",
+        tag: "project",
         parentNodeId: "nod_brainstorm_typescript"
       })
     });
@@ -460,7 +468,7 @@ describe("graph-service canvas routes", () => {
       },
       body: JSON.stringify({
         label: "Architecture",
-        category: "skill",
+        tag: "skill",
         parentNodeId: parentPayload.node.id
       })
     });

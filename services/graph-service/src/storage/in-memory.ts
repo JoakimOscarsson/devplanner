@@ -192,6 +192,35 @@ function readNodeTagString(node: NodeRecord) {
   return readNodeStringMetadata(node, "tag");
 }
 
+function buildBrainstormNodeMetadata(input: {
+  readonly tag?: string | null;
+  readonly existing?: JsonObject;
+}) {
+  const metadata: Record<string, unknown> = {
+    ...(input.existing ?? {})
+  };
+
+  if (input.tag !== undefined) {
+    const tags = parseTagList(input.tag);
+
+    if (tags.length > 0) {
+      metadata.tag = formatTagList(tags);
+      metadata.tags = tags;
+    } else {
+      delete metadata.tag;
+      delete metadata.tags;
+    }
+  }
+
+  return metadata as JsonObject;
+}
+
+function deriveBrainstormNodeCategory(tag?: string | null): GraphNodeCategory {
+  return parseTagList(tag).some((entry) => entry.toLowerCase() === "skill")
+    ? "skill"
+    : "custom";
+}
+
 function readNodeNumberMetadata(node: NodeRecord, key: string) {
   const value = node.metadata?.[key];
   return typeof value === "number" ? value : undefined;
@@ -301,17 +330,23 @@ function graphSeed(): GraphSeed {
         normalizedLabel: "typescript",
         position: { x: 64, y: 84 },
         source: "user",
+        metadata: buildBrainstormNodeMetadata({
+          tag: "skill"
+        }),
         ...auditFields()
       },
       {
         id: "nod_brainstorm_aws" as GraphNode["id"],
         canvasId: "can_brainstorm_certifications" as GraphNode["canvasId"],
         role: "brainstorm",
-        category: "certificate",
+        category: "custom",
         label: "AWS Developer Associate",
         normalizedLabel: "aws-developer-associate",
         position: { x: 220, y: 40 },
         source: "user",
+        metadata: buildBrainstormNodeMetadata({
+          tag: "certificate"
+        }),
         ...auditFields()
       },
       {
@@ -1551,7 +1586,7 @@ export function createNode(
   canvasId: Canvas["id"],
   input: {
     label: string;
-    category: GraphNodeCategory;
+    tag?: string;
     description?: string;
     parentNodeId?: GraphNode["id"];
     position?: GraphNodePosition;
@@ -1572,11 +1607,12 @@ export function createNode(
     id: buildId(ID_PREFIXES.node) as GraphNode["id"],
     canvasId,
     role: "brainstorm",
-    category: input.category,
+    category: deriveBrainstormNodeCategory(input.tag),
     label: input.label.trim(),
     normalizedLabel: normalizeLabel(input.label),
     position: input.position ?? nextNodePosition(canvasId),
     source: "user",
+    ...(input.tag !== undefined ? { metadata: buildBrainstormNodeMetadata({ tag: input.tag }) } : {}),
     ...(typeof input.description === "string" && input.description.trim().length > 0
       ? { description: input.description.trim() }
       : {}),
@@ -1595,7 +1631,7 @@ export function updateNode(
   nodeId: GraphNode["id"],
   changes: {
     label?: string;
-    category?: GraphNodeCategory;
+    tag?: string | null;
     description?: string | null;
     position?: GraphNodePosition;
     parentNodeId?: GraphNode["id"] | null;
@@ -1618,7 +1654,15 @@ export function updateNode(
           normalizedLabel: normalizeLabel(nextLabel)
         }
       : {}),
-    ...(changes.category ? { category: changes.category } : {}),
+    ...(Object.prototype.hasOwnProperty.call(changes, "tag")
+      ? {
+          category: deriveBrainstormNodeCategory(changes.tag),
+          metadata: buildBrainstormNodeMetadata({
+            existing: node.metadata,
+            tag: changes.tag
+          })
+        }
+      : {}),
     ...(Object.prototype.hasOwnProperty.call(changes, "description")
       ? changes.description
         ? { description: changes.description.trim() }

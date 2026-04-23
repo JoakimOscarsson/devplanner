@@ -9,7 +9,6 @@ import type {
   BrainstormCanvas,
   BrainstormCanvasMode,
   BrainstormNode,
-  BrainstormNodeCategory,
   BrainstormNodeRole,
   BrainstormNodeSource,
   BrainstormPosition
@@ -33,7 +32,7 @@ export interface CreateBrainstormCanvasResponse {
 export interface CreateBrainstormNodeInput {
   readonly canvasId: BrainstormCanvas["id"];
   readonly label: string;
-  readonly category: BrainstormNodeCategory;
+  readonly tag?: string;
   readonly role?: BrainstormNodeRole;
   readonly position?: BrainstormPosition;
   readonly source?: BrainstormNodeSource;
@@ -50,7 +49,7 @@ export interface UpdateBrainstormNodeInput {
   readonly canvasId: BrainstormCanvas["id"];
   readonly nodeId: BrainstormNode["id"];
   readonly label?: string;
-  readonly category?: BrainstormNodeCategory;
+  readonly tag?: string | null;
   readonly position?: BrainstormPosition;
   readonly parentNodeId?: BrainstormNode["parentNodeId"] | null;
   readonly description?: string | null;
@@ -137,13 +136,13 @@ export function createBrainstormGatewayPort(
           },
           body: JSON.stringify({
             label: input.label,
-            category: input.category,
             role: input.role ?? "brainstorm",
             source: input.source ?? "user",
             position: input.position ?? {
               x: 0,
               y: 0
             },
+            ...(input.tag !== undefined ? { tag: input.tag } : {}),
             ...(input.parentNodeId
               ? { parentNodeId: input.parentNodeId }
               : {}),
@@ -164,7 +163,7 @@ export function createBrainstormGatewayPort(
           },
           body: JSON.stringify({
             ...(input.label === undefined ? {} : { label: input.label }),
-            ...(input.category === undefined ? {} : { category: input.category }),
+            ...(input.tag === undefined ? {} : { tag: input.tag }),
             ...(input.parentNodeId === undefined
               ? {}
               : { parentNodeId: input.parentNodeId }),

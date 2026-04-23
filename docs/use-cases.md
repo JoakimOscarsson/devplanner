@@ -17,7 +17,7 @@ The product scope covered here is:
 ## Actors
 - `Owner`: the only interactive end user in v1
 - `Gateway`: public HTTP and WebSocket API for the web app
-- `Graph Service`: owns brainstorm categories, canvases, nodes, edges, canonical skills, and skill references
+- `Graph Service`: owns brainstorm canvases, tagged nodes, edges, canonical skills, and skill references
 - `Planner Service`: owns goals, plan items, evidence notes, and visibility state relative to the Skill Graph
 - `Tracker Service`: owns read-only progress projections
 - `Recommendation Service`: owns recommendation runs, recommendation records, recommendation decisions, and provider health

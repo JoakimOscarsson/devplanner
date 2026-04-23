@@ -42,7 +42,7 @@ export interface BrainstormCanvasSummary {
 export interface BrainstormNodeSummary {
   readonly id: BrainstormNode["id"];
   readonly label: string;
-  readonly category: string;
+  readonly tagSummary: string;
   readonly visualKind: string;
   readonly colorToken: string;
   readonly parentLabel?: string;
@@ -113,6 +113,53 @@ export const EMPTY_BRAINSTORM_SNAPSHOT: BrainstormSnapshot = {
   canvases: [],
   graphsByCanvasId: {}
 };
+
+export function parseTagList(input: string | undefined | null) {
+  if (!input) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const tags: string[] = [];
+
+  for (const rawTag of input.split(/[;,]/g)) {
+    const tag = rawTag.trim();
+
+    if (tag.length === 0) {
+      continue;
+    }
+
+    const normalizedTag = tag.toLowerCase();
+
+    if (seen.has(normalizedTag)) {
+      continue;
+    }
+
+    seen.add(normalizedTag);
+    tags.push(tag);
+  }
+
+  return tags;
+}
+
+export function formatTagList(tags: readonly string[]) {
+  return tags.join(", ");
+}
+
+export function readBrainstormNodeTags(node: Pick<BrainstormNode, "metadata">) {
+  const explicitTags = node.metadata?.tags;
+
+  if (Array.isArray(explicitTags)) {
+    const tags = explicitTags.filter((entry): entry is string => typeof entry === "string");
+
+    if (tags.length > 0) {
+      return tags;
+    }
+  }
+
+  const rawTag = node.metadata?.tag;
+  return typeof rawTag === "string" ? parseTagList(rawTag) : [];
+}
 
 export function compareCanvases(
   left: BrainstormCanvas,
@@ -190,7 +237,7 @@ export function deriveBrainstormCreateNodeInput(
     readonly intent: BrainstormComposerIntent;
     readonly anchorNodeId?: BrainstormNode["id"];
     readonly label: string;
-    readonly category: BrainstormNode["category"];
+    readonly tag?: string;
   }
 ): CreateBrainstormNodeInput {
   const graphView = toGraphCanvasViewModel({
@@ -209,11 +256,11 @@ export function deriveBrainstormCreateNodeInput(
   return {
     canvasId: graph.canvas.id,
     label: input.label,
-    category: input.category,
     position: {
       x: placement.x,
       y: placement.y
     },
+    ...(input.tag !== undefined ? { tag: input.tag } : {}),
     ...(placement.parentNodeId ? { parentNodeId: placement.parentNodeId as BrainstormNode["id"] } : {})
   };
 }
@@ -381,7 +428,7 @@ export function buildBrainstormPanelModel(
   const nodes = graphNodes.map((node) => ({
     id: node.id as BrainstormNode["id"],
     label: node.label,
-    category: node.category,
+    tagSummary: readBrainstormNodeTags(nodesById.get(node.id as BrainstormNode["id"]) ?? { metadata: undefined }).join(", ") || "Untagged",
     visualKind: node.visualKind,
     colorToken: node.colorToken,
     parentLabel: node.parentLabel,

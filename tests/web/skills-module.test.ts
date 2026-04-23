@@ -356,14 +356,14 @@ describe("skills module", () => {
           canvasId: "can_brainstorm_1" as never,
           canvasName: "Career ideas",
           label: "Architecture",
-          category: "skill"
+          tags: ["skill"]
         },
         {
           nodeId: "nod_canvas_systems" as never,
           canvasId: "can_brainstorm_2" as never,
           canvasName: "Platform ideas",
           label: "Distributed Systems",
-          category: "skill"
+          tags: ["skill", "architecture"]
         }
       ],
       [

@@ -19,6 +19,8 @@
 - Reference nodes are rendered inline in the tree, expose a `Go to origin` action, and use `Enter` as a keyboard shortcut to jump to the canonical skill location.
 - The filter popover and left navigation drawer both support `Escape` to close and return focus to their trigger buttons.
 - The brainstorm page autofocuses its workspace surface on load, shows a visible focus treatment, and accepts `N` for root node creation alongside the child/sibling hotkeys.
+- Brainstorm node editing uses the same comma- or semicolon-separated tag input pattern as the skill-tree editor instead of a fixed category picker.
+- Only brainstorm nodes tagged with `skill` are surfaced as add-skill suggestions on the skill-tree page.
 - Brainstorm canvas rendering uses the same overlap-safe view model as the rest of the graph UI, so clustered nodes are visually separated before interaction begins.
 - Brainstorm canvas panning is available from visible empty canvas space with primary-button drags on both pointer and touch devices, node dragging only commits after a real movement threshold, and a compact `Reset view` action recenters the active canvas.
 - Brainstorm `Reset view` measures the live canvas viewport instead of a fixed desktop assumption, and the page keeps no-canvas empty states distinct from ready-to-add-root canvases.

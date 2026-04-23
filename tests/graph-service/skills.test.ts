@@ -316,7 +316,7 @@ describe("graph-service skill routes", () => {
         },
         body: JSON.stringify({
           label: "TypeScript",
-          category: "skill"
+          tag: "skill"
         })
       }
     );
