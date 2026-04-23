@@ -10,9 +10,9 @@ This document tracks implementation milestones, substeps, dependencies, and clea
 - When a slice is only partially complete, keep the parent substep unchecked and describe the completed portion in plain text.
 
 ## Current Status Snapshot
-- Most recent confirmed green `main` CI before this tracker update: run `24783822191` for commit `309b4dd` on 2026-04-22.
-- Current development baseline on `main`: architecture/contracts/platform/web foundation complete, plus integrated page-based demo flows for brainstorm mind-mapping, skill-tree promotion and duplicate handling, planner goal writes, tracker projections, and recommendations review.
-- In-flight slice on `main`: brainstorm canvas interaction overhaul iteration 5, focused on locking drag and keyboard branch moves, correcting shared child-placement math, keeping canvas resets framed to the active graph, and tightening touch/canvas edge-case behavior. This remains untracked in the checkbox board until the latest GitHub `CI` run on `main` is green.
+- Most recent confirmed green `main` CI before this tracker update: run `24820688376` for commit `e0d6863` on 2026-04-23.
+- Current development baseline on `main`: architecture/contracts/platform/web foundation complete, plus integrated page-based demo flows for brainstorm mind-mapping, skill-tree promotion and duplicate handling, planner goal writes, tracker projections, recommendations review, and a five-pass brainstorm canvas usability overhaul.
+- No coordinator-only implementation slice is currently waiting on integration; the latest brainstorm overhaul is integrated on `main` and validated by green GitHub `CI`.
 
 ## Live Status Board
 
