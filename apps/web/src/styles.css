@@ -650,6 +650,7 @@ textarea {
     32px 32px,
     32px 32px;
   cursor: grab;
+  touch-action: none;
 }
 
 .brainstorm-canvas--connect {
@@ -672,6 +673,16 @@ textarea {
   color: #1f2937;
   font-size: 0.86rem;
   font-weight: 500;
+}
+
+.brainstorm-canvas__empty-action {
+  margin-top: 0.8rem;
+  min-height: 34px;
+  padding: 0.42rem 0.8rem;
+  border-radius: 6px;
+  box-shadow: none;
+  font-size: 0.78rem;
+  font-weight: 400;
 }
 
 .brainstorm-canvas__wires,
@@ -727,6 +738,13 @@ textarea {
 .brainstorm-node--connect-origin {
   border-style: dashed;
   border-color: rgba(79, 70, 229, 0.9);
+}
+
+.brainstorm-node--reparent-target {
+  border-color: rgba(79, 70, 229, 0.82);
+  box-shadow:
+    0 10px 24px rgba(79, 70, 229, 0.14),
+    inset 0 0 0 1px rgba(79, 70, 229, 0.2);
 }
 
 .brainstorm-node--connect-blocked {

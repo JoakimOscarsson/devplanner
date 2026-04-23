@@ -12,6 +12,7 @@ export interface BrainstormCanvasSurfaceProps {
   readonly nodes: readonly GraphNodeViewModel[];
   readonly edges: readonly GraphEdgeViewModel[];
   readonly selectedNodeId?: string;
+  readonly reparentTargetNodeId?: string;
   readonly connectMode?: boolean;
   readonly draggingNodeId?: string;
   readonly blockedNodeIds?: ReadonlySet<string>;
@@ -24,6 +25,7 @@ export interface BrainstormCanvasSurfaceProps {
   readonly loading?: boolean;
   readonly onCanvasClick?: () => void;
   readonly onCanvasPointerDown?: (event: PointerEvent<HTMLDivElement>) => void;
+  readonly onEmptyPrimaryAction?: () => void;
   readonly onNodeClick?: (node: GraphNodeViewModel) => void;
   readonly onNodePointerDown?: (
     event: PointerEvent<HTMLButtonElement>,
@@ -36,6 +38,7 @@ export function BrainstormCanvasSurface({
   nodes,
   edges,
   selectedNodeId,
+  reparentTargetNodeId,
   connectMode = false,
   draggingNodeId,
   blockedNodeIds,
@@ -45,16 +48,36 @@ export function BrainstormCanvasSurface({
   loading = false,
   onCanvasClick,
   onCanvasPointerDown,
+  onEmptyPrimaryAction,
   onNodeClick,
   onNodePointerDown,
   renderNodeMeta
 }: BrainstormCanvasSurfaceProps) {
   if (nodes.length === 0) {
     return (
-      <div className="brainstorm-canvas brainstorm-canvas--empty">
+      <div
+        className="brainstorm-canvas brainstorm-canvas--empty"
+        onClick={onCanvasClick}
+        onPointerDown={onCanvasPointerDown}
+      >
         <div className="brainstorm-canvas__empty">
           <strong>{emptyTitle}</strong>
           <p>{emptyMessage}</p>
+          {onEmptyPrimaryAction ? (
+            <button
+              type="button"
+              className="brainstorm-canvas__empty-action"
+              onPointerDown={(event) => {
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                onEmptyPrimaryAction();
+              }}
+            >
+              Add root
+            </button>
+          ) : null}
         </div>
       </div>
     );
@@ -100,10 +123,12 @@ export function BrainstormCanvasSurface({
         {nodes.map((node) => {
           const coordinates = toCanvasCoordinates(node.position, bounds);
           const isSelected = node.id === selectedNodeId;
+          const isReparentTarget = node.id === reparentTargetNodeId;
           const className = [
             "brainstorm-node",
             `brainstorm-node--${node.colorToken}`,
             isSelected ? "brainstorm-node--selected" : "",
+            isReparentTarget ? "brainstorm-node--reparent-target" : "",
             draggingNodeId === node.id ? "brainstorm-node--dragging" : "",
             connectMode && isSelected ? "brainstorm-node--connect-origin" : "",
             connectMode && blockedNodeIds?.has(node.id)
