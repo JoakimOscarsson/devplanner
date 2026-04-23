@@ -23,7 +23,8 @@ import {
   type NodeMouseHandler,
   type NodeProps,
   type OnNodeDrag,
-  type ReactFlowInstance
+  type ReactFlowInstance,
+  type Viewport
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { GraphEdgeViewModel, GraphNodeViewModel } from "@pdp-helper/ui-graph";
@@ -36,6 +37,8 @@ export interface BrainstormCanvasSurfaceHandle {
   fitView(): void;
   focusNode(nodeId: string): void;
 }
+
+export type BrainstormCanvasViewport = Viewport;
 
 export interface BrainstormCanvasSurfaceProps {
   readonly viewKey: string;
@@ -62,6 +65,13 @@ export interface BrainstormCanvasSurfaceProps {
     node: GraphNodeViewModel,
     position: { readonly x: number; readonly y: number }
   ) => void;
+  readonly onViewportChange?: (
+    viewKey: string,
+    viewport: BrainstormCanvasViewport
+  ) => void;
+  readonly getStoredViewport?: (
+    viewKey: string
+  ) => BrainstormCanvasViewport | undefined;
   readonly renderNodeMeta?: (node: GraphNodeViewModel) => ReactNode;
 }
 
@@ -161,6 +171,7 @@ interface BrainstormCanvasFlowProps extends BrainstormCanvasSurfaceProps {
 }
 
 function BrainstormCanvasFlow({
+  viewKey,
   nodes,
   edges,
   selectedNodeId,
@@ -178,6 +189,8 @@ function BrainstormCanvasFlow({
   onNodeFocus,
   onNodeDrag,
   onNodeDragStop,
+  onViewportChange,
+  getStoredViewport,
   renderNodeMeta,
   forwardedRef
 }: BrainstormCanvasFlowProps) {
@@ -187,6 +200,8 @@ function BrainstormCanvasFlow({
   const nodeElementRefs = useRef(new Map<string, HTMLDivElement>());
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [coarsePointer, setCoarsePointer] = useState(false);
+  const viewKeyRef = useRef(viewKey);
+  viewKeyRef.current = viewKey;
 
   useEffect(() => {
     const query = window.matchMedia?.("(pointer: coarse)");
@@ -352,6 +367,26 @@ function BrainstormCanvasFlow({
     event.stopPropagation();
   }, []);
 
+  useEffect(() => {
+    const viewport = getStoredViewport?.(viewKey);
+
+    if (!viewport) {
+      return;
+    }
+
+    const raf = requestAnimationFrame(() => {
+      reactFlow.setViewport(viewport, { duration: 0 });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [getStoredViewport, reactFlow, viewKey]);
+
+  const handleViewportChangeEnd = useCallback(
+    (_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+      onViewportChange?.(viewKeyRef.current, viewport);
+    },
+    [onViewportChange]
+  );
+
   return (
     <div
       className={[
@@ -373,6 +408,7 @@ function BrainstormCanvasFlow({
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={handlePaneClick}
         onEdgeClick={handleEdgeClick}
+        onMoveEnd={handleViewportChangeEnd}
         nodesConnectable={false}
         elementsSelectable
         selectNodesOnDrag={false}

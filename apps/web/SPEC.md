@@ -7,6 +7,7 @@
 - The brainstorm page should favor a calm, canvas-first mind-map editor with direct manipulation, automatic spacing, subtree movement, and a small command set that stays usable with both mouse and keyboard.
 - The brainstorm page should preserve deliberate manual arrangement: child/sibling/reparent commands may seed sensible positions, but only the explicit tidy action should re-run the whole-graph layout engine.
 - The brainstorm page should preserve viewport intent too: switching or mutating a canvas must not unexpectedly re-fit the viewport unless the user explicitly asks for `Reset view` or `Tidy layout`.
+- Brainstorm canvases should behave as stable workspaces: pan and zoom should be remembered per canvas during the active session.
 - Brainstorm node typing should stay lightweight: use flexible tags instead of a fixed category picker, and treat the `skill` tag as the signal for skill-tree promotion suggestions.
 - The brainstorm canvas should stay usable on touch devices too: panning empty space and dragging nodes must not silently collapse into a desktop-only interaction model.
 - On touch-oriented devices, safe viewport navigation should take precedence over accidental node mutation.

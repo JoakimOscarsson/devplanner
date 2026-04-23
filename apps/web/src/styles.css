@@ -668,7 +668,7 @@ textarea {
   margin: 0 auto;
   text-align: center;
   color: #667085;
-  cursor: pointer;
+  cursor: default;
 }
 
 .brainstorm-canvas__empty strong {

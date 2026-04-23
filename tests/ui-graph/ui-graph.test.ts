@@ -380,4 +380,49 @@ describe("ui-graph", () => {
       y: 368
     });
   });
+
+  it("places new siblings after the full sibling branch footprint", () => {
+    const nodes = [
+      {
+        id: "nod_root",
+        label: "Root",
+        category: "skill",
+        role: "brainstorm",
+        visualKind: "standard",
+        colorToken: "teal",
+        position: { x: 48, y: 48 }
+      },
+      {
+        id: "nod_child_a",
+        label: "Child A",
+        category: "course",
+        role: "brainstorm",
+        visualKind: "standard",
+        colorToken: "amber",
+        parentNodeId: "nod_root",
+        position: { x: 288, y: 208 }
+      },
+      {
+        id: "nod_grandchild_a",
+        label: "Grandchild A",
+        category: "note",
+        role: "brainstorm",
+        visualKind: "standard",
+        colorToken: "stone",
+        parentNodeId: "nod_child_a",
+        position: { x: 528, y: 448 }
+      }
+    ] as const;
+
+    expect(deriveChildNodePlacement(nodes, "nod_root")).toEqual({
+      parentNodeId: "nod_root",
+      x: 288,
+      y: 608
+    });
+    expect(deriveSiblingNodePlacement(nodes, "nod_child_a")).toEqual({
+      parentNodeId: "nod_root",
+      x: 288,
+      y: 608
+    });
+  });
 });

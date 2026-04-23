@@ -12,6 +12,7 @@ import { type GraphNodeViewModel } from "@pdp-helper/ui-graph";
 import { gatewayUrl } from "../../lib/gateway";
 import {
   BrainstormCanvasSurface,
+  type BrainstormCanvasViewport,
   type BrainstormCanvasSurfaceHandle
 } from "./BrainstormCanvasSurface";
 import {
@@ -593,6 +594,9 @@ export function BrainstormSpotlight({
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const didAutoFocusWorkspace = useRef(false);
   const framedCanvasIdsRef = useRef(new Set<BrainstormCanvas["id"]>());
+  const viewportByCanvasIdRef = useRef(
+    new Map<BrainstormCanvas["id"], BrainstormCanvasViewport>()
+  );
   const refreshSequenceRef = useRef(0);
   const dragPreviewRef = useRef<DragPreviewState | null>(null);
   const dragRequestSequenceRef = useRef(0);
@@ -600,6 +604,17 @@ export function BrainstormSpotlight({
   function pushToast(message: string, tone: ToastTone = "info") {
     setToastEntries((current) => [...current, buildToastEntry(message, tone)]);
   }
+
+  const handleCanvasViewportChange = useCallback(
+    (canvasId: string, viewport: BrainstormCanvasViewport) => {
+      viewportByCanvasIdRef.current.set(canvasId as BrainstormCanvas["id"], viewport);
+    },
+    []
+  );
+
+  const getStoredCanvasViewport = useCallback((canvasId: string) => {
+    return viewportByCanvasIdRef.current.get(canvasId as BrainstormCanvas["id"]);
+  }, []);
 
   useEffect(() => {
     if (!snapshot) {
@@ -1233,9 +1248,13 @@ export function BrainstormSpotlight({
         nodeId: selectedNode.id,
         parentNodeId: null
       });
-      await refreshCanvasGraph(canvasId, {
-        preferredSelectedNodeId: selectedNode.id
-      });
+      try {
+        await refreshCanvasGraph(canvasId, {
+          preferredSelectedNodeId: selectedNode.id
+        });
+      } catch {
+        pushToast("Detached, but the canvas could not refresh. Reopen it to sync.", "error");
+      }
       setConnectMode(false);
       setError(null);
       setFeedback(`Detached "${selectedNode.label}" from its parent.`);
@@ -1279,9 +1298,13 @@ export function BrainstormSpotlight({
               canvasId,
               nodeId: selectedNode.id
             });
-            await refreshCanvasGraph(canvasId, {
-              preferredSelectedNodeId: null
-            });
+            try {
+              await refreshCanvasGraph(canvasId, {
+                preferredSelectedNodeId: null
+              });
+            } catch {
+              pushToast("Removed, but the canvas could not refresh. Reopen it to sync.", "error");
+            }
             setError(null);
             setFeedback(`Removed "${selectedNode.label}".`);
             setSelectedNodeId(null);
@@ -1314,9 +1337,13 @@ export function BrainstormSpotlight({
         targetNodeId,
         kind: "relates-to"
       });
-      await refreshCanvasGraph(selectedCanvasIdForActions, {
-        preferredSelectedNodeId: selectedNode.id
-      });
+      try {
+        await refreshCanvasGraph(selectedCanvasIdForActions, {
+          preferredSelectedNodeId: selectedNode.id
+        });
+      } catch {
+        pushToast("Linked, but the canvas could not refresh. Reopen it to sync.", "error");
+      }
       setFeedback(
         `Linked "${selectedNode.label}" to "${nodesById.get(targetNodeId)?.label ?? "the selected node"}".`
       );
@@ -1340,9 +1367,13 @@ export function BrainstormSpotlight({
         canvasId: selectedCanvasIdForActions,
         edgeId
       });
-      await refreshCanvasGraph(selectedCanvasIdForActions, {
-        preferredSelectedNodeId: selectedNodeId
-      });
+      try {
+        await refreshCanvasGraph(selectedCanvasIdForActions, {
+          preferredSelectedNodeId: selectedNodeId
+        });
+      } catch {
+        pushToast("Removed link, but the canvas could not refresh. Reopen it to sync.", "error");
+      }
       setFeedback("Removed the link.");
       setError(null);
     } catch (requestError) {
@@ -1355,9 +1386,9 @@ export function BrainstormSpotlight({
   function previewReparentTarget(nodeId: BrainstormNode["id"]) {
     setReparentTarget({ nodeId });
     setError(null);
-    setFeedback(
-      `Ready to move "${selectedNode?.label ?? "node"}" under "${nodesById.get(nodeId)?.label ?? "the selected parent"}". Press Enter to confirm.`
-    );
+      setFeedback(
+        `Ready to move "${selectedNode?.label ?? "node"}" under "${nodesById.get(nodeId)?.label ?? "the selected parent"}". Press Enter to confirm.`
+      );
   }
 
   async function handleNodeClick(node: GraphNodeViewModel) {
@@ -1563,9 +1594,13 @@ export function BrainstormSpotlight({
           nextParentNodeId: targetNodeId
         })
       });
-      await refreshCanvasGraph(selectedCanvasIdForActions, {
-        preferredSelectedNodeId: selectedNode.id
-      });
+      try {
+        await refreshCanvasGraph(selectedCanvasIdForActions, {
+          preferredSelectedNodeId: selectedNode.id
+        });
+      } catch {
+        pushToast("Moved, but the canvas could not refresh. Reopen it to sync.", "error");
+      }
       setFeedback(
         `Moved "${selectedNode.label}" under "${nodesById.get(targetNodeId)?.label ?? "the selected parent"}".`
       );
@@ -2110,6 +2145,8 @@ export function BrainstormSpotlight({
             onNodeFocus={handleNodeFocus}
             onNodeDrag={handleNodeDrag}
             onNodeDragStop={handleNodeDragStop}
+            onViewportChange={handleCanvasViewportChange}
+            getStoredViewport={getStoredCanvasViewport}
             renderNodeMeta={(node) => {
               const nodeRecord = nodesById.get(node.id as BrainstormNode["id"]);
 

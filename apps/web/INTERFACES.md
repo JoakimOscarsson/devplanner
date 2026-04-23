@@ -27,6 +27,7 @@
 - On coarse-pointer devices, brainstorm nodes default to safe viewport panning instead of direct node dragging, so touch exploration is less likely to mutate the canvas accidentally.
 - Brainstorm `Reset view` measures the live canvas viewport instead of a fixed desktop assumption, and the page keeps no-canvas empty states distinct from ready-to-add-root canvases.
 - Switching brainstorm canvases now reuses the cached graph immediately but also revalidates in the background, and first-open framing happens once per canvas instead of re-centering after every node-count change.
+- Brainstorm canvas pan/zoom is preserved by canvas id while the page is mounted, so switching canvases restores the workspace view instead of inheriting another canvas viewport.
 - Brainstorm empty canvases keep the same interactive surface as populated canvases and expose a small inline `Add root` action for first-node creation only when the active canvas is ready.
 - Empty brainstorm canvases no longer turn the whole surface into an add-root trigger; only the explicit inline action opens creation.
 - Freshly created brainstorm canvases are initialized with an empty graph immediately so the first root-node flow works without reselecting the canvas.
@@ -47,5 +48,6 @@
 - Brainstorm canvases now expose a minimal explicit-link flow: select a node, use `Link to`, click another brainstorm node to create a `relates-to` edge, and remove those explicit links from the selection card without leaving the page.
 - Double-clicking a brainstorm node now opens the editor directly without reaching for the toolbar.
 - Brainstorm refresh failures after successful creates/edits are reported separately from the completed write, reducing duplicate-retry risk.
+- Brainstorm placement helpers account for sibling branch footprint when creating children, siblings, or reparented nodes, so fast branch growth is less likely to overlap existing descendants.
 - Planner goals initialize an empty local breakdown shell on creation so the first added plan item or evidence note appears immediately.
 - Recommendation manual runs refresh the visible feed/provider snapshot before appending the run entry, and recent decision history prefers recommendation titles over raw ids.

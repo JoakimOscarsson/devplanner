@@ -103,6 +103,53 @@ const ROLE_PRIORITY: Readonly<Record<GraphNodeRole, number>> = {
   recommendation: 3
 };
 
+function collectDescendantNodeIds(
+  nodes: readonly GraphNodeViewModel[],
+  rootNodeId: string
+): ReadonlySet<string> {
+  const childrenByParentId = new Map<string, string[]>();
+
+  for (const node of nodes) {
+    if (!node.parentNodeId) {
+      continue;
+    }
+
+    const bucket = childrenByParentId.get(node.parentNodeId) ?? [];
+    bucket.push(node.id);
+    childrenByParentId.set(node.parentNodeId, bucket);
+  }
+
+  const descendants = new Set<string>();
+  const queue = [...(childrenByParentId.get(rootNodeId) ?? [])];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+
+    if (!current || descendants.has(current)) {
+      continue;
+    }
+
+    descendants.add(current);
+    queue.push(...(childrenByParentId.get(current) ?? []));
+  }
+
+  return descendants;
+}
+
+function getBranchMaxY(
+  nodes: readonly GraphNodeViewModel[],
+  rootNodeId: string
+): number {
+  const branchNodeIds = new Set(collectDescendantNodeIds(nodes, rootNodeId));
+  branchNodeIds.add(rootNodeId);
+
+  return Math.max(
+    ...nodes
+      .filter((node) => branchNodeIds.has(node.id))
+      .map((node) => node.position.y)
+  );
+}
+
 function parseNodeTags(node: Pick<GraphNode, "metadata">) {
   const explicitTags = node.metadata?.tags;
 
@@ -401,7 +448,8 @@ export function deriveChildNodePlacement(
   const nextY =
     siblingNodes.length === 0
       ? parentNode.position.y + VERTICAL_GAP
-      : Math.max(...siblingNodes.map((node) => node.position.y)) + VERTICAL_GAP;
+      : Math.max(...siblingNodes.map((node) => getBranchMaxY(nodes, node.id))) +
+        VERTICAL_GAP;
 
   return {
     parentNodeId,
@@ -445,7 +493,7 @@ export function deriveReparentedNodePlacement(
       node.parentNodeId === input.nextParentNodeId && node.id !== input.nodeId
   );
   const maxSiblingY = nextSiblingNodes.length
-    ? Math.max(...nextSiblingNodes.map((node) => node.position.y))
+    ? Math.max(...nextSiblingNodes.map((node) => getBranchMaxY(nodes, node.id)))
     : nextParent.position.y - VERTICAL_GAP;
 
   return {
