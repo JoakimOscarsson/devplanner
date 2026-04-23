@@ -60,7 +60,7 @@ export async function layoutBrainstormGraph(
     id: "root",
     layoutOptions: {
       "elk.algorithm": "layered",
-      "elk.direction": "DOWN",
+      "elk.direction": "RIGHT",
       "elk.layered.spacing.nodeNodeBetweenLayers": "96",
       "elk.spacing.nodeNode": "64",
       "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",

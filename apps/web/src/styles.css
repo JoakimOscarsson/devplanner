@@ -641,16 +641,9 @@ textarea {
   overflow: hidden;
   border: 1px solid rgba(226, 232, 240, 0.96);
   border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.96)),
-    linear-gradient(rgba(226, 232, 240, 0.42) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(226, 232, 240, 0.42) 1px, transparent 1px);
-  background-size:
-    auto,
-    32px 32px,
-    32px 32px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.96));
   cursor: grab;
-  touch-action: pan-y pinch-zoom;
+  touch-action: none;
 }
 
 .brainstorm-canvas--connect {
@@ -662,14 +655,20 @@ textarea {
 }
 
 .brainstorm-canvas--empty {
-  display: grid;
-  place-items: center;
+  display: block;
 }
 
 .brainstorm-canvas__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  padding: 1.25rem;
   max-width: 24rem;
+  margin: 0 auto;
   text-align: center;
   color: #667085;
+  pointer-events: none;
 }
 
 .brainstorm-canvas__empty strong {
@@ -687,25 +686,10 @@ textarea {
   box-shadow: none;
   font-size: 0.78rem;
   font-weight: 400;
-}
-
-.brainstorm-canvas__wires,
-.brainstorm-canvas__content {
-  position: absolute;
-  left: 0;
-  top: 0;
-  pointer-events: none;
-}
-
-.brainstorm-canvas__wire {
-  fill: none;
-  stroke: rgba(148, 163, 184, 0.84);
-  stroke-width: 2;
-  stroke-linecap: round;
+  pointer-events: auto;
 }
 
 .brainstorm-node {
-  position: absolute;
   display: grid;
   gap: 4px;
   align-content: start;

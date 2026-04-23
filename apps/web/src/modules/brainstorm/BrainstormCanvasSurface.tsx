@@ -6,14 +6,13 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
   type ReactNode
 } from "react";
 import {
   Background,
   BackgroundVariant,
-  Controls,
   Handle,
-  MiniMap,
   Position,
   ReactFlow,
   ReactFlowProvider,
@@ -38,6 +37,7 @@ export interface BrainstormCanvasSurfaceHandle {
 }
 
 export interface BrainstormCanvasSurfaceProps {
+  readonly viewKey: string;
   readonly nodes: readonly GraphNodeViewModel[];
   readonly edges: readonly GraphEdgeViewModel[];
   readonly selectedNodeId?: string;
@@ -47,9 +47,15 @@ export interface BrainstormCanvasSurfaceProps {
   readonly emptyMessage: string;
   readonly emptyTitle?: string;
   readonly loading?: boolean;
+  readonly disabled?: boolean;
   readonly onCanvasClick?: () => void;
   readonly onEmptyPrimaryAction?: () => void;
   readonly onNodeClick?: (node: GraphNodeViewModel) => void;
+  readonly onNodeFocus?: (node: GraphNodeViewModel) => void;
+  readonly onNodeDrag?: (
+    node: GraphNodeViewModel,
+    position: { readonly x: number; readonly y: number }
+  ) => void;
   readonly onNodeDragStop?: (
     node: GraphNodeViewModel,
     position: { readonly x: number; readonly y: number }
@@ -63,7 +69,10 @@ interface BrainstormRFNodeData extends Record<string, unknown> {
   readonly isReparentTarget: boolean;
   readonly isConnectOrigin: boolean;
   readonly isBlocked: boolean;
+  readonly isDragging: boolean;
   readonly metaNode: ReactNode;
+  readonly onFocusNode?: (node: GraphNodeViewModel) => void;
+  readonly onClickNode?: (node: GraphNodeViewModel) => void;
 }
 
 type BrainstormRFNode = Node<BrainstormRFNodeData, "brainstorm">;
@@ -80,7 +89,8 @@ const BrainstormNodeView = memo(function BrainstormNodeView({
     isSelected ? "brainstorm-node--selected" : "",
     isReparentTarget ? "brainstorm-node--reparent-target" : "",
     isConnectOrigin ? "brainstorm-node--connect-origin" : "",
-    isBlocked ? "brainstorm-node--connect-blocked" : ""
+    isBlocked ? "brainstorm-node--connect-blocked" : "",
+    data.isDragging ? "brainstorm-node--dragging" : ""
   ]
     .filter(Boolean)
     .join(" ");
@@ -90,6 +100,14 @@ const BrainstormNodeView = memo(function BrainstormNodeView({
       className={className}
       data-brainstorm-hotkeys="allow"
       aria-label={isSelected ? `${view.label}, selected` : view.label}
+      role="button"
+      tabIndex={0}
+      onFocus={() => {
+        data.onFocusNode?.(view);
+      }}
+      onClick={() => {
+        data.onClickNode?.(view);
+      }}
       style={{
         width: BRAINSTORM_NODE_WIDTH,
         minHeight: BRAINSTORM_NODE_HEIGHT
@@ -97,7 +115,7 @@ const BrainstormNodeView = memo(function BrainstormNodeView({
     >
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         style={{ opacity: 0, pointerEvents: "none" }}
         isConnectable={false}
       />
@@ -106,7 +124,7 @@ const BrainstormNodeView = memo(function BrainstormNodeView({
       {metaNode ? <span className="brainstorm-node__submeta">{metaNode}</span> : null}
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         style={{ opacity: 0, pointerEvents: "none" }}
         isConnectable={false}
       />
@@ -132,6 +150,7 @@ interface BrainstormCanvasFlowProps extends BrainstormCanvasSurfaceProps {
 }
 
 function BrainstormCanvasFlow({
+  viewKey,
   nodes,
   edges,
   selectedNodeId,
@@ -141,9 +160,12 @@ function BrainstormCanvasFlow({
   emptyMessage,
   emptyTitle = "Mind-map canvas",
   loading = false,
+  disabled = false,
   onCanvasClick,
   onEmptyPrimaryAction,
   onNodeClick,
+  onNodeFocus,
+  onNodeDrag,
   onNodeDragStop,
   renderNodeMeta,
   forwardedRef
@@ -151,6 +173,7 @@ function BrainstormCanvasFlow({
   const reactFlow = useReactFlow();
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
 
   useImperativeHandle(
     forwardedRef,
@@ -167,7 +190,7 @@ function BrainstormCanvasFlow({
       id: node.id,
       type: "brainstorm",
       position: { x: node.position.x, y: node.position.y },
-      draggable: !connectMode,
+      draggable: !connectMode && !disabled,
       selectable: true,
       selected: node.id === selectedNodeId,
       data: {
@@ -176,15 +199,22 @@ function BrainstormCanvasFlow({
         isReparentTarget: node.id === reparentTargetNodeId,
         isConnectOrigin: connectMode && node.id === selectedNodeId,
         isBlocked: connectMode ? blockedNodeIds?.has(node.id) ?? false : false,
-        metaNode: renderNodeMeta ? renderNodeMeta(node) : null
+        isDragging: draggingNodeId === node.id,
+        metaNode: renderNodeMeta ? renderNodeMeta(node) : null,
+        onFocusNode: onNodeFocus,
+        onClickNode: onNodeClick
       }
     }));
   }, [
+    draggingNodeId,
     nodes,
     selectedNodeId,
     reparentTargetNodeId,
     connectMode,
+    disabled,
     blockedNodeIds,
+    onNodeClick,
+    onNodeFocus,
     renderNodeMeta
   ]);
 
@@ -239,8 +269,29 @@ function BrainstormCanvasFlow({
     [onNodeClick]
   );
 
+  const handleNodeDrag = useCallback<OnNodeDrag>(
+    (_event, node) => {
+      const view = nodesRef.current.find((candidate) => candidate.id === node.id);
+      if (view) {
+        onNodeDrag?.(view, {
+          x: Math.round(node.position.x),
+          y: Math.round(node.position.y)
+        });
+      }
+    },
+    [onNodeDrag]
+  );
+
+  const handleNodeDragStart = useCallback<OnNodeDrag>(
+    (_event, node) => {
+      setDraggingNodeId(node.id);
+    },
+    []
+  );
+
   const handleNodeDragStop = useCallback<OnNodeDrag>(
     (_event, node) => {
+      setDraggingNodeId(null);
       const view = nodesRef.current.find((candidate) => candidate.id === node.id);
       if (view) {
         onNodeDragStop?.(view, {
@@ -260,29 +311,53 @@ function BrainstormCanvasFlow({
     event.stopPropagation();
   }, []);
 
-  // Fit view once when node set appears from empty.
-  const hadNodesRef = useRef(false);
   useEffect(() => {
     if (nodes.length === 0) {
-      hadNodesRef.current = false;
       return;
     }
-    if (hadNodesRef.current) {
-      return;
-    }
-    hadNodesRef.current = true;
     const raf = requestAnimationFrame(() => {
       reactFlow.fitView({ padding: 0.24, duration: 0 });
     });
     return () => cancelAnimationFrame(raf);
-  }, [nodes.length, reactFlow]);
+  }, [nodes.length, reactFlow, viewKey]);
 
-  if (nodes.length === 0) {
-    return (
-      <div
-        className="brainstorm-canvas brainstorm-canvas--empty"
-        onClick={onCanvasClick}
+  return (
+    <div
+      className={[
+        "brainstorm-canvas",
+        connectMode ? "brainstorm-canvas--connect" : "",
+        draggingNodeId ? "brainstorm-canvas--panning" : "",
+        nodes.length === 0 ? "brainstorm-canvas--empty" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <ReactFlow
+        nodes={rfNodes}
+        edges={rfEdges}
+        nodeTypes={NODE_TYPES}
+        onNodeClick={handleNodeClick}
+        onNodeDrag={handleNodeDrag}
+        onNodeDragStart={handleNodeDragStart}
+        onNodeDragStop={handleNodeDragStop}
+        onPaneClick={handlePaneClick}
+        onEdgeClick={handleEdgeClick}
+        nodesConnectable={false}
+        elementsSelectable
+        selectNodesOnDrag={false}
+        panOnDrag={!disabled}
+        panOnScroll={false}
+        zoomOnScroll
+        zoomOnDoubleClick={false}
+        minZoom={0.3}
+        maxZoom={1.6}
+        proOptions={{ hideAttribution: true }}
+        fitView
+        fitViewOptions={{ padding: 0.24 }}
       >
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
+      </ReactFlow>
+      {nodes.length === 0 ? (
         <div className="brainstorm-canvas__empty">
           <strong>{emptyTitle}</strong>
           <p>{emptyMessage}</p>
@@ -300,44 +375,7 @@ function BrainstormCanvasFlow({
             </button>
           ) : null}
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className={[
-        "brainstorm-canvas",
-        connectMode ? "brainstorm-canvas--connect" : ""
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      <ReactFlow
-        nodes={rfNodes}
-        edges={rfEdges}
-        nodeTypes={NODE_TYPES}
-        onNodeClick={handleNodeClick}
-        onNodeDragStop={handleNodeDragStop}
-        onPaneClick={handlePaneClick}
-        onEdgeClick={handleEdgeClick}
-        nodesConnectable={false}
-        elementsSelectable
-        selectNodesOnDrag={false}
-        panOnDrag
-        panOnScroll={false}
-        zoomOnScroll
-        zoomOnDoubleClick={false}
-        minZoom={0.3}
-        maxZoom={1.6}
-        proOptions={{ hideAttribution: true }}
-        fitView
-        fitViewOptions={{ padding: 0.24 }}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
-        <Controls showInteractive={false} />
-        <MiniMap pannable zoomable ariaLabel="Brainstorm minimap" />
-      </ReactFlow>
+      ) : null}
     </div>
   );
 }

@@ -34,5 +34,8 @@
 - The brainstorm node modal traps focus, blocks dismissal while saving, and asks for confirmation before discarding unsaved changes.
 - Brainstorm page-level hotkeys are suppressed while ordinary toolbar/sidebar buttons are focused, but remain active on selected node cards so keyboard editing stays fast once the canvas itself is active.
 - Brainstorm mutation commands now lock while a write is in flight, including keyboard branch movement and drag-commit persistence, so repeated hotkeys or double-clicks cannot enqueue overlapping move/delete/detach requests against the same selection.
+- The brainstorm canvas now runs on React Flow with ELK-powered tidy layout, keeps the tree flowing left-to-right, and reserves full re-layout for the explicit `Tidy layout` action instead of reflowing every structural edit.
+- Brainstorm nodes are keyboard-focusable inside the canvas itself, `ArrowUp` and `ArrowDown` cycle visible nodes when no reparent flow is active, and `ArrowLeft`/`ArrowRight` move between parent and first-child relationships in the current branch.
+- Dragging a brainstorm parent now drags its visible subtree together and persists the moved branch as one mutation batch instead of writing only the origin node.
 - Planner goals initialize an empty local breakdown shell on creation so the first added plan item or evidence note appears immediately.
 - Recommendation manual runs refresh the visible feed/provider snapshot before appending the run entry, and recent decision history prefers recommendation titles over raw ids.
