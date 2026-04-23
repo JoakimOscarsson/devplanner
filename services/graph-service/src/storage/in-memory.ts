@@ -974,6 +974,45 @@ function assertParentNode(
     );
   }
 
+  const descendantIds = new Set<GraphNode["id"]>();
+  const queue: GraphNode["id"][] = [nodeId];
+
+  while (queue.length > 0) {
+    const currentNodeId = queue.shift();
+
+    if (!currentNodeId) {
+      continue;
+    }
+
+    for (const child of graphStore.nodes.filter(
+      (node) => node.canvasId === canvasId && node.parentNodeId === currentNodeId
+    )) {
+      if (descendantIds.has(child.id)) {
+        continue;
+      }
+
+      descendantIds.add(child.id);
+      queue.push(child.id);
+    }
+  }
+
+  if (descendantIds.has(parentNodeId)) {
+    throw storeError(
+      "VALIDATION_FAILED",
+      "A node cannot be moved into its own subtree.",
+      422,
+      {
+        issues: [
+          {
+            path: "parentNodeId",
+            rule: "cycle",
+            message: "A node cannot be moved into its own subtree."
+          }
+        ]
+      }
+    );
+  }
+
   return assertNodeInCanvas(canvasId, parentNodeId);
 }
 

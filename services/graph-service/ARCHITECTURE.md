@@ -14,6 +14,7 @@
 - `src/routes/*` owns graph HTTP surfaces.
 - `src/domain/*` owns health metadata and future graph invariants.
 - `src/events/*` owns graph event subject references.
+- Brainstorm graph invariants currently include acyclic parent-child relationships for node reparenting.
 
 ## Update this file when
 - Graph ownership changes.

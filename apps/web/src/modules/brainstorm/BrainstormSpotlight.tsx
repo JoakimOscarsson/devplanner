@@ -8,14 +8,19 @@ import {
   type PointerEvent as ReactPointerEvent
 } from "react";
 import type { ModuleCapability } from "@pdp-helper/ui-shell";
-import { toGraphCanvasViewModel, type GraphNodeViewModel } from "@pdp-helper/ui-graph";
-import { GraphCanvasSurface } from "../../lib/GraphCanvasSurface";
+import {
+  sortGraphNodes,
+  toGraphEdgeViewModel,
+  toGraphNodeViewModel,
+  type GraphNodeViewModel
+} from "@pdp-helper/ui-graph";
 import { gatewayUrl } from "../../lib/gateway";
 import {
-  createDraftNodePosition,
-  getShortcutHintRows,
-  moveGraphNodePosition
+  GRAPH_MOVE_STEP,
+  GRAPH_NODE_HEIGHT,
+  GRAPH_NODE_WIDTH
 } from "../../lib/graph-canvas-helpers";
+import { BrainstormCanvasSurface } from "./BrainstormCanvasSurface";
 import {
   createBrainstormGatewayPort,
   loadBrainstormSnapshot,
@@ -25,6 +30,8 @@ import {
 import {
   buildBrainstormPanelModel,
   compareCanvases,
+  deriveBrainstormCreateNodeInput,
+  deriveBrainstormReparentUpdate,
   EMPTY_BRAINSTORM_SNAPSHOT,
   type BrainstormCanvasGraph,
   type BrainstormSnapshot
@@ -32,19 +39,39 @@ import {
 import {
   USER_NODE_CATEGORIES,
   type BrainstormCanvas,
-  type BrainstormNode
+  type BrainstormNode,
+  type BrainstormPosition
 } from "./brainstorm-types";
 
 type PendingAction = "canvas" | "node" | "mutation" | null;
-type DraftRelationship = "root" | "child" | "sibling";
+type NodeEditorMode = "create-root" | "create-child" | "create-sibling" | "edit";
+
+interface NodeEditorState {
+  readonly mode: NodeEditorMode;
+  readonly nodeId?: BrainstormNode["id"];
+}
+
+interface NodeEditorDraft {
+  readonly label: string;
+  readonly category: (typeof USER_NODE_CATEGORIES)[number];
+  readonly description: string;
+}
+
+interface PanState {
+  readonly pointerStartX: number;
+  readonly pointerStartY: number;
+  readonly originX: number;
+  readonly originY: number;
+}
 
 interface DragState {
   readonly canvasId: BrainstormCanvas["id"];
   readonly nodeId: BrainstormNode["id"];
-  readonly originX: number;
-  readonly originY: number;
+  readonly subtreeIds: readonly BrainstormNode["id"][];
+  readonly originPositions: Readonly<Record<string, BrainstormPosition>>;
   readonly pointerStartX: number;
   readonly pointerStartY: number;
+  hasMoved: boolean;
 }
 
 export interface BrainstormSpotlightProps {
@@ -62,29 +89,6 @@ export interface BrainstormSpotlightProps {
   ) => Promise<unknown> | unknown;
 }
 
-const STATUS_STYLES = {
-  up: {
-    background: "#ecfdf5",
-    borderColor: "#86efac",
-    color: "#166534"
-  },
-  degraded: {
-    background: "#fff7ed",
-    borderColor: "#fdba74",
-    color: "#9a3412"
-  },
-  down: {
-    background: "#fef2f2",
-    borderColor: "#fca5a5",
-    color: "#991b1b"
-  },
-  unknown: {
-    background: "#f5f5f4",
-    borderColor: "#d6d3d1",
-    color: "#44403c"
-  }
-} as const;
-
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unable to load brainstorm data.";
 }
@@ -99,8 +103,26 @@ function isTypingTarget(target: EventTarget | null) {
     tagName === "input" ||
     tagName === "textarea" ||
     tagName === "select" ||
+    tagName === "button" ||
+    tagName === "a" ||
     target.isContentEditable
   );
+}
+
+function createEmptyNodeDraft(): NodeEditorDraft {
+  return {
+    label: "",
+    category: "skill",
+    description: ""
+  };
+}
+
+function createNodeDraftFromNode(node: BrainstormNode): NodeEditorDraft {
+  return {
+    label: node.label,
+    category: node.category as (typeof USER_NODE_CATEGORIES)[number],
+    description: node.description ?? ""
+  };
 }
 
 function mergeCanvasGraph(
@@ -118,41 +140,319 @@ function mergeCanvasGraph(
   };
 }
 
-function replaceNodeInGraph(
-  snapshot: BrainstormSnapshot,
-  canvasId: BrainstormCanvas["id"],
-  nextNode: BrainstormNode
-) {
-  const graph = snapshot.graphsByCanvasId[canvasId];
+function clampPosition(position: BrainstormPosition): BrainstormPosition {
+  return {
+    x: Math.max(0, Math.round(position.x)),
+    y: Math.max(0, Math.round(position.y))
+  };
+}
 
-  if (!graph) {
-    return snapshot;
+function collectSubtreeNodeIds(
+  nodes: readonly BrainstormNode[],
+  rootNodeId: BrainstormNode["id"]
+): readonly BrainstormNode["id"][] {
+  const childIdsByParentId = new Map<string, BrainstormNode["id"][]>();
+
+  for (const node of nodes) {
+    if (!node.parentNodeId) {
+      continue;
+    }
+
+    const current = childIdsByParentId.get(node.parentNodeId) ?? [];
+    current.push(node.id);
+    childIdsByParentId.set(node.parentNodeId, current);
   }
 
-  return mergeCanvasGraph(snapshot, {
+  const visited = new Set<BrainstormNode["id"]>();
+  const queue: BrainstormNode["id"][] = [rootNodeId];
+
+  while (queue.length > 0) {
+    const currentNodeId = queue.shift();
+
+    if (!currentNodeId || visited.has(currentNodeId)) {
+      continue;
+    }
+
+    visited.add(currentNodeId);
+
+    for (const childId of childIdsByParentId.get(currentNodeId) ?? []) {
+      queue.push(childId);
+    }
+  }
+
+  return [...visited];
+}
+
+function shiftSubtreePositions(
+  graph: BrainstormCanvasGraph,
+  subtreeNodeIds: ReadonlySet<BrainstormNode["id"]>,
+  delta: {
+    readonly x: number;
+    readonly y: number;
+  },
+  originPositions?: Readonly<Record<string, BrainstormPosition>>
+): BrainstormCanvasGraph {
+  return {
     ...graph,
-    nodes: graph.nodes.map((node) => (node.id === nextNode.id ? nextNode : node))
+    nodes: graph.nodes.map((node) => {
+      if (!subtreeNodeIds.has(node.id)) {
+        return node;
+      }
+
+      const basePosition = originPositions?.[node.id] ?? node.position;
+
+      return {
+        ...node,
+        position: clampPosition({
+          x: basePosition.x + delta.x,
+          y: basePosition.y + delta.y
+        })
+      };
+    })
+  };
+}
+
+function resolveSubtreeSpacing(
+  graph: BrainstormCanvasGraph,
+  subtreeNodeIds: ReadonlySet<BrainstormNode["id"]>
+): BrainstormCanvasGraph {
+  const movingNodes = graph.nodes.filter((node) => subtreeNodeIds.has(node.id));
+  const staticNodes = graph.nodes.filter((node) => !subtreeNodeIds.has(node.id));
+
+  if (movingNodes.length === 0 || staticNodes.length === 0) {
+    return graph;
+  }
+
+  const horizontalPadding = 36;
+  const verticalPadding = 28;
+  let offsetY = 0;
+  let iterationCount = 0;
+
+  const overlaps = (node: BrainstormNode, other: BrainstormNode) => {
+    const left = node.position.x;
+    const right = node.position.x + GRAPH_NODE_WIDTH;
+    const top = node.position.y + offsetY;
+    const bottom = top + GRAPH_NODE_HEIGHT;
+    const otherLeft = other.position.x;
+    const otherRight = other.position.x + GRAPH_NODE_WIDTH;
+    const otherTop = other.position.y;
+    const otherBottom = other.position.y + GRAPH_NODE_HEIGHT;
+
+    return !(
+      right + horizontalPadding <= otherLeft ||
+      left >= otherRight + horizontalPadding ||
+      bottom + verticalPadding <= otherTop ||
+      top >= otherBottom + verticalPadding
+    );
+  };
+
+  while (
+    movingNodes.some((node) => staticNodes.some((otherNode) => overlaps(node, otherNode))) &&
+    iterationCount < 120
+  ) {
+    offsetY += verticalPadding;
+    iterationCount += 1;
+  }
+
+  if (offsetY === 0) {
+    return graph;
+  }
+
+  return shiftSubtreePositions(graph, subtreeNodeIds, {
+    x: 0,
+    y: offsetY
   });
 }
 
-function removeNodeFromGraph(
-  snapshot: BrainstormSnapshot,
-  canvasId: BrainstormCanvas["id"],
-  nodeId: BrainstormNode["id"]
-) {
-  const graph = snapshot.graphsByCanvasId[canvasId];
+function getDescendantNodeIds(
+  nodes: readonly BrainstormNode[],
+  rootNodeId: BrainstormNode["id"]
+): ReadonlySet<BrainstormNode["id"]> {
+  const subtreeIds = new Set(collectSubtreeNodeIds(nodes, rootNodeId));
+  subtreeIds.delete(rootNodeId);
+  return subtreeIds;
+}
 
-  if (!graph) {
-    return snapshot;
-  }
+function BrainstormNodeModal({
+  state,
+  draft,
+  pending,
+  parentLabel,
+  onDraftChange,
+  onCancel,
+  onSubmit
+}: {
+  readonly state: NodeEditorState;
+  readonly draft: NodeEditorDraft;
+  readonly pending: boolean;
+  readonly parentLabel?: string;
+  readonly onDraftChange: (draft: NodeEditorDraft) => void;
+  readonly onCancel: () => void;
+  readonly onSubmit: () => void;
+}) {
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const pointerStartedOnBackdrop = useRef(false);
 
-  return mergeCanvasGraph(snapshot, {
-    ...graph,
-    nodes: graph.nodes.filter((node) => node.id !== nodeId),
-    edges: graph.edges.filter(
-      (edge) => edge.sourceNodeId !== nodeId && edge.targetNodeId !== nodeId
-    )
-  });
+  useEffect(() => {
+    const firstFocusable = formRef.current?.querySelector<HTMLElement>(
+      "input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])"
+    );
+    firstFocusable?.focus();
+  }, []);
+
+  const title =
+    state.mode === "edit"
+      ? "Edit node"
+      : state.mode === "create-child"
+        ? "Add child node"
+        : state.mode === "create-sibling"
+          ? "Add sibling node"
+          : "Add root node";
+
+  return (
+    <div
+      className="skill-modal-backdrop"
+      role="presentation"
+      onPointerDown={(event) => {
+        pointerStartedOnBackdrop.current = event.target === event.currentTarget;
+      }}
+      onPointerUp={(event) => {
+        if (
+          pointerStartedOnBackdrop.current &&
+          event.target === event.currentTarget
+        ) {
+          onCancel();
+        }
+
+        pointerStartedOnBackdrop.current = false;
+      }}
+      onPointerCancel={() => {
+        pointerStartedOnBackdrop.current = false;
+      }}
+    >
+      <form
+        ref={formRef}
+        className="skill-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="brainstorm-node-editor-title"
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+            return;
+          }
+
+          if (event.key !== "Tab") {
+            return;
+          }
+
+          const focusableElements = Array.from(
+            formRef.current?.querySelectorAll<HTMLElement>(
+              "input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])"
+            ) ?? []
+          );
+
+          if (focusableElements.length === 0) {
+            return;
+          }
+
+          const firstFocusable = focusableElements[0];
+          const lastFocusable = focusableElements[focusableElements.length - 1];
+
+          if (!firstFocusable || !lastFocusable) {
+            return;
+          }
+
+          if (event.shiftKey && document.activeElement === firstFocusable) {
+            event.preventDefault();
+            lastFocusable.focus();
+            return;
+          }
+
+          if (!event.shiftKey && document.activeElement === lastFocusable) {
+            event.preventDefault();
+            firstFocusable.focus();
+          }
+        }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
+        <div className="skill-modal__header">
+          <h2 id="brainstorm-node-editor-title">{title}</h2>
+          {parentLabel ? (
+            <p className="skill-modal__subcopy">Connected under {parentLabel}</p>
+          ) : null}
+        </div>
+
+        <div className="skill-modal__body">
+          <label className="skill-modal__field">
+            <span>Label *</span>
+            <input
+              value={draft.label}
+              placeholder="e.g. Event-driven design"
+              onChange={(event) =>
+                onDraftChange({
+                  ...draft,
+                  label: event.target.value
+                })
+              }
+            />
+          </label>
+
+          <label className="skill-modal__field">
+            <span>Category</span>
+            <select
+              value={draft.category}
+              onChange={(event) =>
+                onDraftChange({
+                  ...draft,
+                  category: event.target.value as (typeof USER_NODE_CATEGORIES)[number]
+                })
+              }
+            >
+              {USER_NODE_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="skill-modal__field">
+            <span>Description</span>
+            <textarea
+              value={draft.description}
+              placeholder="Optional context..."
+              onChange={(event) =>
+                onDraftChange({
+                  ...draft,
+                  description: event.target.value
+                })
+              }
+            />
+          </label>
+        </div>
+
+        <div className="skill-modal__actions">
+          <button
+            type="button"
+            className="skill-modal__secondary"
+            onClick={onCancel}
+            disabled={pending}
+          >
+            Cancel
+          </button>
+          <button type="submit" disabled={pending || draft.label.trim().length === 0}>
+            {state.mode === "edit" ? "Save" : "Add"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
 }
 
 export function BrainstormSpotlight({
@@ -178,17 +478,18 @@ export function BrainstormSpotlight({
   const [graphLoadingId, setGraphLoadingId] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [canvasName, setCanvasName] = useState("");
-  const [nodeLabel, setNodeLabel] = useState("");
-  const [nodeCategory, setNodeCategory] = useState<
-    (typeof USER_NODE_CATEGORIES)[number]
-  >("skill");
   const [selectedNodeId, setSelectedNodeId] = useState<BrainstormNode["id"] | null>(null);
-  const [reparentMode, setReparentMode] = useState(false);
+  const [connectMode, setConnectMode] = useState(false);
   const [draggingNodeId, setDraggingNodeId] = useState<BrainstormNode["id"] | null>(null);
+  const [editorState, setEditorState] = useState<NodeEditorState | null>(null);
+  const [editorDraft, setEditorDraft] = useState<NodeEditorDraft>(createEmptyNodeDraft);
+  const [viewportOffset, setViewportOffset] = useState({ x: 48, y: 36 });
   const workspaceRef = useRef<HTMLElement | null>(null);
   const snapshotRef = useRef<BrainstormSnapshot | null>(snapshot ?? null);
+  const panStateRef = useRef<PanState | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const didAutoFocusWorkspace = useRef(false);
+  const refreshSequenceRef = useRef(0);
 
   useEffect(() => {
     if (!snapshot) {
@@ -220,11 +521,9 @@ export function BrainstormSpotlight({
         setLocalSnapshot(nextSnapshot);
         setError(null);
       } catch (requestError) {
-        if (!active) {
-          return;
+        if (active) {
+          setError(getErrorMessage(requestError));
         }
-
-        setError(getErrorMessage(requestError));
       } finally {
         if (active) {
           setLoading(false);
@@ -239,9 +538,12 @@ export function BrainstormSpotlight({
     };
   }, [gateway, snapshot]);
 
+  useEffect(() => {
+    snapshotRef.current = localSnapshot;
+  }, [localSnapshot]);
+
   const activeSnapshot = localSnapshot ?? EMPTY_BRAINSTORM_SNAPSHOT;
-  const activeSelectedCanvasId =
-    selectedCanvasId ?? localSnapshot?.selectedCanvasId;
+  const activeSelectedCanvasId = selectedCanvasId ?? localSnapshot?.selectedCanvasId;
   const model = buildBrainstormPanelModel(activeSnapshot, {
     selectedCanvasId: activeSelectedCanvasId,
     canvasHrefBuilder
@@ -252,32 +554,35 @@ export function BrainstormSpotlight({
     ? activeSnapshot.graphsByCanvasId[selectedCanvasIdForActions]
     : undefined;
   const canvasView = selectedGraph
-    ? toGraphCanvasViewModel({
-        mode: selectedGraph.canvas.mode,
-        nodes: selectedGraph.nodes,
-        edges: selectedGraph.edges
-      })
+    ? {
+        nodes: sortGraphNodes(selectedGraph.nodes).map(toGraphNodeViewModel),
+        edges: selectedGraph.edges.map(toGraphEdgeViewModel)
+      }
     : { nodes: [], edges: [] };
   const nodesById = new Map(
     (selectedGraph?.nodes ?? []).map((node) => [node.id, node] as const)
   );
-  const viewNodesById = new Map(
-    canvasView.nodes.map((node) => [node.id, node] as const)
+  const selectedNode = selectedNodeId ? nodesById.get(selectedNodeId) : undefined;
+  const parentLabel =
+    selectedNode?.parentNodeId && nodesById.get(selectedNode.parentNodeId)
+      ? nodesById.get(selectedNode.parentNodeId)?.label
+      : undefined;
+  const selectedNodeCount = selectedGraph?.nodes.length ?? 0;
+  const linkCount = selectedGraph?.edges.length ?? 0;
+  const selectedNodeParentLabel = selectedNode?.parentNodeId
+    ? nodesById.get(selectedNode.parentNodeId)?.label ?? "Unknown"
+    : "Root node";
+  const connectBlockedNodeIds = useMemo(
+    () =>
+      selectedNode && selectedGraph
+        ? getDescendantNodeIds(selectedGraph.nodes, selectedNode.id)
+        : new Set<BrainstormNode["id"]>(),
+    [selectedGraph, selectedNode]
   );
-  const selectedNode = selectedNodeId
-    ? nodesById.get(selectedNodeId)
-    : undefined;
-  const selectedViewNode = selectedNodeId
-    ? viewNodesById.get(selectedNodeId)
-    : undefined;
-  const moduleStatus = module?.status ?? "unknown";
-  const statusStyle =
-    STATUS_STYLES[moduleStatus as keyof typeof STATUS_STYLES] ??
-    STATUS_STYLES.unknown;
-
-  useEffect(() => {
-    snapshotRef.current = localSnapshot;
-  }, [localSnapshot]);
+  const isGraphLoading =
+    !!selectedCanvasIdForActions &&
+    graphLoadingId === selectedCanvasIdForActions &&
+    !selectedGraph;
 
   useEffect(() => {
     if (didAutoFocusWorkspace.current || loading || !selectedCanvas) {
@@ -289,9 +594,14 @@ export function BrainstormSpotlight({
   }, [loading, selectedCanvas]);
 
   useEffect(() => {
+    setViewportOffset({ x: 48, y: 36 });
+    setConnectMode(false);
+  }, [selectedCanvasIdForActions]);
+
+  useEffect(() => {
     if (!selectedGraph) {
       setSelectedNodeId(null);
-      setReparentMode(false);
+      setConnectMode(false);
       return;
     }
 
@@ -300,28 +610,46 @@ export function BrainstormSpotlight({
       !selectedGraph.nodes.some((node) => node.id === selectedNodeId)
     ) {
       setSelectedNodeId(null);
-      setReparentMode(false);
+      setConnectMode(false);
     }
   }, [selectedGraph, selectedNodeId]);
 
   useEffect(() => {
-    if (!draggingNodeId) {
+    if (!panStateRef.current && !dragStateRef.current) {
       return;
     }
 
+    const dragThreshold = 4;
+
     function handlePointerMove(event: PointerEvent) {
+      const panState = panStateRef.current;
       const dragState = dragStateRef.current;
+
+      if (panState) {
+        setViewportOffset({
+          x: Math.round(panState.originX + (event.clientX - panState.pointerStartX)),
+          y: Math.round(panState.originY + (event.clientY - panState.pointerStartY))
+        });
+        return;
+      }
 
       if (!dragState) {
         return;
       }
 
-      const dx = event.clientX - dragState.pointerStartX;
-      const dy = event.clientY - dragState.pointerStartY;
-      const position = {
-        x: Math.max(0, Math.round(dragState.originX + dx)),
-        y: Math.max(0, Math.round(dragState.originY + dy))
-      };
+      const deltaX = event.clientX - dragState.pointerStartX;
+      const deltaY = event.clientY - dragState.pointerStartY;
+
+      if (!dragState.hasMoved) {
+        const distance = Math.hypot(deltaX, deltaY);
+
+        if (distance < dragThreshold) {
+          return;
+        }
+
+        dragState.hasMoved = true;
+        setDraggingNodeId(dragState.nodeId);
+      }
 
       setLocalSnapshot((current) => {
         if (!current) {
@@ -334,38 +662,72 @@ export function BrainstormSpotlight({
           return current;
         }
 
-        return mergeCanvasGraph(current, {
-          ...graph,
-          nodes: graph.nodes.map((node) =>
-            node.id === dragState.nodeId ? { ...node, position } : node
+        return mergeCanvasGraph(
+          current,
+          shiftSubtreePositions(
+            graph,
+            new Set(dragState.subtreeIds),
+            {
+              x: deltaX,
+              y: deltaY
+            },
+            dragState.originPositions
           )
-        });
+        );
       });
     }
 
     async function handlePointerUp() {
+      const panState = panStateRef.current;
       const dragState = dragStateRef.current;
 
+      panStateRef.current = null;
       dragStateRef.current = null;
-      setDraggingNodeId(null);
 
-      if (!dragState) {
+      if (panState) {
         return;
       }
 
-      const graph = snapshotRef.current?.graphsByCanvasId[dragState.canvasId];
-      const node = graph?.nodes.find((entry) => entry.id === dragState.nodeId);
+      setDraggingNodeId(null);
 
-      if (!node) {
+      if (!dragState || !dragState.hasMoved) {
         return;
+      }
+
+      const currentSnapshot = snapshotRef.current;
+      const graph = currentSnapshot?.graphsByCanvasId[dragState.canvasId];
+
+      if (!currentSnapshot || !graph) {
+        return;
+      }
+
+      const resolvedGraph = resolveSubtreeSpacing(
+        graph,
+        new Set(dragState.subtreeIds)
+      );
+
+      if (resolvedGraph !== graph) {
+        setLocalSnapshot((current) =>
+          current ? mergeCanvasGraph(current, resolvedGraph) : current
+        );
       }
 
       try {
-        await gateway.updateNode({
-          canvasId: dragState.canvasId,
-          nodeId: dragState.nodeId,
-          position: node.position
-        });
+        const nodesToPersist = (resolvedGraph ?? graph).nodes.filter((node) =>
+          dragState.subtreeIds.includes(node.id)
+        );
+
+        await Promise.all(
+          nodesToPersist.map((node) =>
+            gateway.updateNode({
+              canvasId: dragState.canvasId,
+              nodeId: node.id,
+              position: node.position
+            })
+          )
+        );
+
+        setFeedback(`Moved "${nodesById.get(dragState.nodeId)?.label ?? "node"}".`);
       } catch (requestError) {
         setError(getErrorMessage(requestError));
       }
@@ -373,30 +735,51 @@ export function BrainstormSpotlight({
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp, { once: true });
+    window.addEventListener("pointercancel", handlePointerUp, { once: true });
 
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
     };
-  }, [draggingNodeId, gateway]);
+  }, [gateway, nodesById]);
 
-  async function refreshCanvasGraph(canvasId: BrainstormCanvas["id"]) {
+  async function refreshCanvasGraph(
+    canvasId: BrainstormCanvas["id"],
+    options: {
+      readonly preferredSelectedNodeId?: BrainstormNode["id"] | null;
+    } = {}
+  ) {
+    const requestSequence = refreshSequenceRef.current + 1;
+    refreshSequenceRef.current = requestSequence;
     setGraphLoadingId(canvasId);
 
     try {
       const canvasGraph = await gateway.getCanvasGraph(canvasId);
+
+      if (refreshSequenceRef.current !== requestSequence) {
+        return;
+      }
+
       setLocalSnapshot((current) =>
         mergeCanvasGraph(
           current ?? EMPTY_BRAINSTORM_SNAPSHOT,
           canvasGraph,
-          selectedCanvasId === undefined ? canvasId : current?.selectedCanvasId
+          current?.selectedCanvasId
         )
       );
+      if (options.preferredSelectedNodeId !== undefined) {
+        setSelectedNodeId(options.preferredSelectedNodeId);
+      }
       setError(null);
     } catch (requestError) {
-      setError(getErrorMessage(requestError));
+      if (refreshSequenceRef.current === requestSequence) {
+        setError(getErrorMessage(requestError));
+      }
     } finally {
-      setGraphLoadingId(null);
+      if (refreshSequenceRef.current === requestSequence) {
+        setGraphLoadingId(null);
+      }
     }
   }
 
@@ -404,7 +787,7 @@ export function BrainstormSpotlight({
     setFeedback(null);
     setError(null);
     setSelectedNodeId(null);
-    setReparentMode(false);
+    setConnectMode(false);
 
     onSelectedCanvasChange?.(canvasId);
 
@@ -459,10 +842,18 @@ export function BrainstormSpotlight({
 
             return {
               canvases: [...baseSnapshot.canvases, nextCanvas].sort(compareCanvases),
-              graphsByCanvasId: baseSnapshot.graphsByCanvasId,
+              graphsByCanvasId: {
+                ...baseSnapshot.graphsByCanvasId,
+                [nextCanvas.id]: {
+                  canvas: nextCanvas,
+                  nodes: [],
+                  edges: []
+                }
+              },
               selectedCanvasId: nextCanvas.id
             };
           });
+          setSelectedNodeId(null);
         }
       }
 
@@ -475,65 +866,127 @@ export function BrainstormSpotlight({
     }
   }
 
-  async function createNodeFromComposer(relationship: DraftRelationship) {
-    const label = nodeLabel.trim();
-    const canvasId = selectedCanvasIdForActions;
-
-    if (!label || !canvasId) {
-      setFeedback("Add a label and choose a canvas before creating a node.");
+  function openNodeEditor(mode: NodeEditorMode) {
+    if (!selectedCanvasIdForActions) {
       return;
     }
 
-    const selectedViewNodeForDraft = selectedViewNode;
-
-    if ((relationship === "child" || relationship === "sibling") && !selectedViewNodeForDraft) {
-      setFeedback(
-        relationship === "child"
-          ? "Select a node first, then create the child."
-          : "Select a node first, then create the sibling."
-      );
+    if (!selectedGraph && mode !== "create-root") {
       return;
     }
 
-    const input = {
-      canvasId,
-      label,
-      category: nodeCategory,
-      role: "brainstorm" as const,
-      source: "user" as const,
-      position: createDraftNodePosition({
-        relationship,
-        nodeCount: canvasView.nodes.length,
-        selectedNode: selectedViewNodeForDraft
-      }),
-      ...(relationship === "child" && selectedViewNodeForDraft
-        ? { parentNodeId: selectedViewNodeForDraft.id as BrainstormNode["id"] }
-        : {}),
-      ...(relationship === "sibling" && selectedNode?.parentNodeId
-        ? { parentNodeId: selectedNode.parentNodeId }
-        : {})
-    } satisfies CreateBrainstormNodeInput;
+    if ((mode === "create-child" || mode === "create-sibling" || mode === "edit") && !selectedNode) {
+      return;
+    }
 
-    setPendingAction("node");
     setFeedback(null);
     setError(null);
+    setConnectMode(false);
+
+    if (mode === "edit" && selectedNode) {
+      setEditorState({
+        mode,
+        nodeId: selectedNode.id
+      });
+      setEditorDraft(createNodeDraftFromNode(selectedNode));
+      return;
+    }
+
+    setEditorState({
+      mode,
+      ...(selectedNode ? { nodeId: selectedNode.id } : {})
+    });
+    setEditorDraft(createEmptyNodeDraft());
+  }
+
+  async function submitNodeEditor() {
+    if (!editorState || !selectedCanvasIdForActions) {
+      return;
+    }
+
+    const label = editorDraft.label.trim();
+
+    if (!label && editorState.mode !== "edit") {
+      return;
+    }
+
+    setPendingAction("node");
+    setError(null);
+    setFeedback(null);
 
     try {
-      if (onCreateNode) {
-        await onCreateNode(input);
+      if (editorState.mode === "edit" && editorState.nodeId) {
+        await gateway.updateNode({
+          canvasId: selectedCanvasIdForActions,
+          nodeId: editorState.nodeId,
+          label,
+          category: editorDraft.category,
+          description: editorDraft.description.trim().length > 0 ? editorDraft.description : null
+        });
+        await refreshCanvasGraph(selectedCanvasIdForActions, {
+          preferredSelectedNodeId: editorState.nodeId
+        });
+        setFeedback(`Updated "${label}".`);
+      } else if (selectedGraph) {
+        const response = onCreateNode
+          ? await onCreateNode(
+              deriveBrainstormCreateNodeInput(selectedGraph, {
+                intent:
+                  editorState.mode === "create-child"
+                    ? "child"
+                    : editorState.mode === "create-sibling"
+                      ? "sibling"
+                      : "root",
+                anchorNodeId: editorState.nodeId,
+                label,
+                category: editorDraft.category
+              })
+            )
+          : await gateway.createNode({
+              ...deriveBrainstormCreateNodeInput(selectedGraph, {
+                intent:
+                  editorState.mode === "create-child"
+                    ? "child"
+                    : editorState.mode === "create-sibling"
+                      ? "sibling"
+                      : "root",
+                anchorNodeId: editorState.nodeId,
+                label,
+                category: editorDraft.category
+              }),
+              ...(editorDraft.description.trim().length > 0
+                ? { description: editorDraft.description }
+                : {})
+            });
+
+        const createdNodeId =
+          typeof response === "object" &&
+          response !== null &&
+          "node" in response &&
+          response.node &&
+          typeof response.node === "object" &&
+          "id" in response.node
+            ? (response.node.id as BrainstormNode["id"])
+            : null;
+
+        await refreshCanvasGraph(selectedCanvasIdForActions, {
+          preferredSelectedNodeId: createdNodeId
+        });
+        setFeedback(
+          editorState.mode === "create-root"
+            ? `Added "${label}" to ${selectedCanvas?.name ?? "the canvas"}.`
+            : editorState.mode === "create-child"
+              ? `Added child "${label}".`
+              : `Added sibling "${label}".`
+        );
       } else {
-        await gateway.createNode(input);
-        await refreshCanvasGraph(canvasId);
+        setError("Select a loaded canvas before adding nodes.");
+        return;
       }
 
-      setNodeLabel("");
-      setFeedback(
-        relationship === "root"
-          ? `Added "${label}" to ${selectedCanvas?.name ?? "the canvas"}.`
-          : relationship === "child"
-            ? `Added child "${label}".`
-            : `Added sibling "${label}".`
-      );
+      setEditorState(null);
+      setEditorDraft(createEmptyNodeDraft());
+      workspaceRef.current?.focus();
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -541,27 +994,44 @@ export function BrainstormSpotlight({
     }
   }
 
-  async function moveSelectedNode(direction: "left" | "right" | "up" | "down") {
+  async function moveSelectedSubtree(direction: "left" | "right" | "up" | "down") {
     const canvasId = selectedCanvasIdForActions;
 
-    if (!canvasId || !selectedNode) {
+    if (!canvasId || !selectedGraph || !selectedNode) {
       return;
     }
 
-    const nextPosition = moveGraphNodePosition(selectedNode.position, direction);
+    const step =
+      direction === "left"
+        ? { x: -GRAPH_MOVE_STEP, y: 0 }
+        : direction === "right"
+          ? { x: GRAPH_MOVE_STEP, y: 0 }
+          : direction === "up"
+            ? { x: 0, y: -GRAPH_MOVE_STEP }
+            : { x: 0, y: GRAPH_MOVE_STEP };
+
+    const subtreeIds = new Set(collectSubtreeNodeIds(selectedGraph.nodes, selectedNode.id));
+    const shiftedGraph = resolveSubtreeSpacing(
+      shiftSubtreePositions(selectedGraph, subtreeIds, step),
+      subtreeIds
+    );
+
+    setLocalSnapshot((current) =>
+      current ? mergeCanvasGraph(current, shiftedGraph) : current
+    );
 
     try {
-      const response = await gateway.updateNode({
-        canvasId,
-        nodeId: selectedNode.id,
-        position: nextPosition
-      });
-
-      if (response.node) {
-        setLocalSnapshot((current) =>
-          current ? replaceNodeInGraph(current, canvasId, response.node!) : current
-        );
-      }
+      await Promise.all(
+        shiftedGraph.nodes
+          .filter((node) => subtreeIds.has(node.id))
+          .map((node) =>
+            gateway.updateNode({
+              canvasId,
+              nodeId: node.id,
+              position: node.position
+            })
+          )
+      );
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     }
@@ -582,7 +1052,10 @@ export function BrainstormSpotlight({
         nodeId: selectedNode.id,
         parentNodeId: null
       });
-      await refreshCanvasGraph(canvasId);
+      await refreshCanvasGraph(canvasId, {
+        preferredSelectedNodeId: selectedNode.id
+      });
+      setConnectMode(false);
       setFeedback(`Detached "${selectedNode.label}" from its parent.`);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -605,12 +1078,12 @@ export function BrainstormSpotlight({
         canvasId,
         nodeId: selectedNode.id
       });
-      setLocalSnapshot((current) =>
-        current ? removeNodeFromGraph(current, canvasId, selectedNode.id) : current
-      );
+      await refreshCanvasGraph(canvasId, {
+        preferredSelectedNodeId: null
+      });
       setFeedback(`Removed "${selectedNode.label}".`);
       setSelectedNodeId(null);
-      setReparentMode(false);
+      setConnectMode(false);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -620,21 +1093,32 @@ export function BrainstormSpotlight({
 
   async function handleNodeClick(node: GraphNodeViewModel) {
     if (
-      reparentMode &&
+      connectMode &&
       selectedNode &&
       selectedCanvasIdForActions &&
-      node.id !== selectedNode.id
+      node.id !== selectedNode.id &&
+      selectedGraph
     ) {
+      if (connectBlockedNodeIds.has(node.id as BrainstormNode["id"])) {
+        setError("A node cannot be moved under one of its own descendants.");
+        return;
+      }
+
       try {
         setPendingAction("mutation");
         await gateway.updateNode({
           canvasId: selectedCanvasIdForActions,
           nodeId: selectedNode.id,
-          parentNodeId: node.id as BrainstormNode["id"]
+          ...deriveBrainstormReparentUpdate(selectedGraph, {
+            nodeId: selectedNode.id,
+            nextParentNodeId: node.id as BrainstormNode["id"]
+          })
         });
-        await refreshCanvasGraph(selectedCanvasIdForActions);
+        await refreshCanvasGraph(selectedCanvasIdForActions, {
+          preferredSelectedNodeId: selectedNode.id
+        });
         setFeedback(`Moved "${selectedNode.label}" under "${node.label}".`);
-        setReparentMode(false);
+        setConnectMode(false);
       } catch (requestError) {
         setError(getErrorMessage(requestError));
       } finally {
@@ -655,26 +1139,54 @@ export function BrainstormSpotlight({
   ) {
     const selectedNodeRecord = nodesById.get(node.id as BrainstormNode["id"]);
 
-    if (!selectedNodeRecord || !selectedCanvasIdForActions || reparentMode) {
+    if (!selectedNodeRecord || !selectedCanvasIdForActions || connectMode) {
       return;
     }
+
+    const subtreeIds = collectSubtreeNodeIds(
+      selectedGraph?.nodes ?? [],
+      node.id as BrainstormNode["id"]
+    );
 
     dragStateRef.current = {
       canvasId: selectedCanvasIdForActions,
       nodeId: node.id as BrainstormNode["id"],
-      originX: selectedNodeRecord.position.x,
-      originY: selectedNodeRecord.position.y,
+      subtreeIds,
+      originPositions: Object.fromEntries(
+        (selectedGraph?.nodes ?? [])
+          .filter((entry) => subtreeIds.includes(entry.id))
+          .map((entry) => [entry.id, entry.position])
+      ),
       pointerStartX: event.clientX,
-      pointerStartY: event.clientY
+      pointerStartY: event.clientY,
+      hasMoved: false
     };
 
     setSelectedNodeId(node.id as BrainstormNode["id"]);
-    setDraggingNodeId(node.id as BrainstormNode["id"]);
+    setDraggingNodeId(null);
+    workspaceRef.current?.focus();
+  }
+
+  function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (
+      event.target instanceof HTMLElement &&
+      event.target.closest(".brainstorm-node")
+    ) {
+      return;
+    }
+
+    panStateRef.current = {
+      pointerStartX: event.clientX,
+      pointerStartY: event.clientY,
+      originX: viewportOffset.x,
+      originY: viewportOffset.y
+    };
+
     workspaceRef.current?.focus();
   }
 
   async function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (isTypingTarget(event.target)) {
+    if (editorState || isTypingTarget(event.target)) {
       return;
     }
 
@@ -682,33 +1194,39 @@ export function BrainstormSpotlight({
       case "c":
       case "C":
         event.preventDefault();
-        await createNodeFromComposer("child");
+        openNodeEditor("create-child");
         break;
-      case "s":
-      case "S":
+      case "a":
+      case "A":
         event.preventDefault();
-        await createNodeFromComposer("sibling");
+        openNodeEditor("create-sibling");
         break;
       case "n":
       case "N":
         event.preventDefault();
-        await createNodeFromComposer("root");
+        openNodeEditor("create-root");
+        break;
+      case "Enter":
+        if (selectedNode) {
+          event.preventDefault();
+          openNodeEditor("edit");
+        }
         break;
       case "ArrowLeft":
         event.preventDefault();
-        await moveSelectedNode("left");
+        await moveSelectedSubtree("left");
         break;
       case "ArrowRight":
         event.preventDefault();
-        await moveSelectedNode("right");
+        await moveSelectedSubtree("right");
         break;
       case "ArrowUp":
         event.preventDefault();
-        await moveSelectedNode("up");
+        await moveSelectedSubtree("up");
         break;
       case "ArrowDown":
         event.preventDefault();
-        await moveSelectedNode("down");
+        await moveSelectedSubtree("down");
         break;
       case "Delete":
       case "Backspace":
@@ -721,12 +1239,13 @@ export function BrainstormSpotlight({
       case "M":
         if (selectedNode) {
           event.preventDefault();
-          setReparentMode((current) => !current);
+          setConnectMode((current) => !current);
         }
         break;
       case "Escape":
         event.preventDefault();
-        setReparentMode(false);
+        setConnectMode(false);
+        setEditorState(null);
         break;
       default:
         break;
@@ -736,240 +1255,206 @@ export function BrainstormSpotlight({
   return (
     <article
       ref={workspaceRef}
-      className="panel"
+      className="panel panel--clean brainstorm-page"
       onKeyDown={(event) => void handleKeyDown(event)}
       tabIndex={0}
     >
-      <header className="panel-header">
-        <div className="module-header">
-          <div>
-            <h2>Mind-map canvas</h2>
-            <p>
-              Work directly on the mind-map canvas. Root nodes, children, siblings,
-              re-parenting, delete, keyboard nudging, and drag positioning all stay in
-              one place.
-            </p>
-          </div>
-          <div
-            style={{
-              border: `1px solid ${statusStyle.borderColor}`,
-              background: statusStyle.background,
-              color: statusStyle.color
-            }}
-            className="status-pill"
-          >
-            {moduleStatus}
-          </div>
-        </div>
-      </header>
+      {loading ? <p className="callout">Loading canvases…</p> : null}
+      {error ? <p className="callout callout--error">{error}</p> : null}
+      {feedback ? <p className="callout">{feedback}</p> : null}
 
-      <div className="workspace-layout">
-        <aside className="workspace-sidebar">
-          <section className="workspace-card workspace-card--sidebar">
-            <div className="workspace-card__header">
+      <div className="brainstorm-layout">
+        <aside className="brainstorm-sidebar">
+          <section className="brainstorm-sidebar__section">
+            <div className="brainstorm-sidebar__header">
               <strong>Canvases</strong>
-              <p>Separate mind-map canvases keep brainstorming uncluttered.</p>
+              <span>{module?.status ?? "active"}</span>
             </div>
-
-            {loading ? <p className="callout">Loading canvases from the gateway graph proxy.</p> : null}
-            {error ? <p className="callout callout--error">{error}</p> : null}
-            {feedback ? <p className="callout">{feedback}</p> : null}
-
-            <div className="stack-list">
+            <div className="brainstorm-canvas-list">
               {model.canvasSummaries.map((canvas) => (
                 <button
                   key={canvas.id}
                   type="button"
                   className={
                     canvas.isSelected
-                      ? "stack-list__item stack-list__item--active"
-                      : "stack-list__item"
+                      ? "brainstorm-canvas-list__item brainstorm-canvas-list__item--active"
+                      : "brainstorm-canvas-list__item"
                   }
                   onClick={() => void selectCanvas(canvas.id)}
                 >
-                  <span>{canvas.name}</span>
+                  <strong>{canvas.name}</strong>
                   <span>
-                    {canvas.graphLoaded
-                      ? `${canvas.nodeCount} nodes`
-                      : "Load preview"}
+                    {canvas.graphLoaded ? `${canvas.nodeCount} nodes` : "Load"}
                   </span>
                 </button>
               ))}
             </div>
 
-            <form className="stack-form" onSubmit={(event) => void handleCreateCanvas(event)}>
-              <label className="stack-form__field">
-                <span>New canvas</span>
-                <input
-                  value={canvasName}
-                  onChange={(event) => setCanvasName(event.target.value)}
-                  placeholder="Career themes"
-                />
-              </label>
+            <form className="brainstorm-canvas-create" onSubmit={(event) => void handleCreateCanvas(event)}>
+              <input
+                value={canvasName}
+                onChange={(event) => setCanvasName(event.target.value)}
+                placeholder="New canvas"
+              />
               <button type="submit" disabled={pendingAction === "canvas"}>
-                {pendingAction === "canvas" ? "Creating..." : "Create canvas"}
+                Add
               </button>
             </form>
           </section>
 
-          <section className="workspace-card workspace-card--sidebar">
-            <div className="workspace-card__header">
-              <strong>Quick create</strong>
-              <p>Use the composer buttons or the keyboard shortcuts below.</p>
+          <section className="brainstorm-sidebar__section">
+            <div className="brainstorm-sidebar__header">
+              <strong>Selection</strong>
+              <span>{selectedNode ? selectedNode.category : "none"}</span>
             </div>
-
-            <div className="stack-form">
-              <label className="stack-form__field">
-                <span>Label</span>
-                <input
-                  value={nodeLabel}
-                  onChange={(event) => setNodeLabel(event.target.value)}
-                  placeholder="Event-driven design"
-                />
-              </label>
-              <label className="stack-form__field">
-                <span>Category</span>
-                <select
-                  value={nodeCategory}
-                  onChange={(event) =>
-                    setNodeCategory(
-                      event.target.value as (typeof USER_NODE_CATEGORIES)[number]
-                    )
-                  }
-                >
-                  {USER_NODE_CATEGORIES.map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="segmented-actions">
-                <button
-                  type="button"
-                  onClick={() => void createNodeFromComposer("root")}
-                  disabled={pendingAction === "node" || !selectedCanvasIdForActions}
-                >
-                  Create root node
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void createNodeFromComposer("child")}
-                  disabled={pendingAction === "node" || !selectedNode}
-                >
-                  Create child
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void createNodeFromComposer("sibling")}
-                  disabled={pendingAction === "node" || !selectedNode}
-                >
-                  Create sibling
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <section className="workspace-card workspace-card--sidebar">
-            <div className="workspace-card__header">
-              <strong>Selected node</strong>
-              <p>
-                {selectedNode
-                  ? "Use keyboard arrows to move it, or drag it directly on the canvas."
-                  : "Select a node to enable node actions."}
-              </p>
-            </div>
-
             {selectedNode ? (
-              <div className="node-inspector">
+              <div className="brainstorm-selection-card">
                 <strong>{selectedNode.label}</strong>
-                <span>{selectedNode.category}</span>
+                <span>{selectedNodeParentLabel}</span>
                 <span>
-                  Position {selectedNode.position.x}, {selectedNode.position.y}
+                  {selectedNode.position.x}, {selectedNode.position.y}
                 </span>
-                <span>
-                  {selectedNode.parentNodeId
-                    ? `Parent: ${nodesById.get(selectedNode.parentNodeId)?.label ?? "Unknown"}`
-                    : "Root node"}
-                </span>
-                <div className="segmented-actions">
-                  <button
-                    type="button"
-                    onClick={() => setReparentMode((current) => !current)}
-                    disabled={pendingAction === "mutation"}
-                  >
-                    {reparentMode ? "Cancel reparent mode" : "Reparent mode"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void detachSelectedNode()}
-                    disabled={pendingAction === "mutation" || !selectedNode.parentNodeId}
-                  >
-                    Detach
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void deleteSelectedNode()}
-                    disabled={pendingAction === "mutation"}
-                  >
-                    Remove
-                  </button>
-                </div>
               </div>
             ) : (
-              <p className="muted-copy">
-                Nothing selected yet. Reparent mode unlocks once a node is selected.
+              <p className="brainstorm-muted-copy">
+                Select a node to edit it, move it under another node, or drag the whole branch.
               </p>
             )}
 
-            <p className="section-kicker">Hotkeys</p>
-            <ul className="shortcut-list">
-              {getShortcutHintRows().map((row) => (
-                <li key={row}>{row}</li>
-              ))}
+            <ul className="brainstorm-shortcuts">
+              <li>
+                <code>N</code> add root
+              </li>
+              <li>
+                <code>C</code> add child
+              </li>
+              <li>
+                <code>A</code> add sibling
+              </li>
+              <li>
+                <code>Enter</code> edit
+              </li>
+              <li>
+                <code>M</code> move under
+              </li>
+              <li>
+                <code>Delete</code> remove
+              </li>
             </ul>
           </section>
         </aside>
 
-        <section className="workspace-main">
-          <div className="workspace-summary">
-            <div className="summary-chip">
+        <section className="brainstorm-main">
+          <div className="brainstorm-toolbar">
+            <div className="brainstorm-toolbar__context">
               <strong>{selectedCanvas?.name ?? "No canvas selected"}</strong>
               <span>
                 {selectedCanvas
-                  ? `${selectedCanvas.nodeCount} nodes • ${selectedCanvas.edgeCount} links`
+                  ? `${selectedNodeCount} nodes • ${linkCount} links`
                   : "Create or select a canvas"}
               </span>
             </div>
-            <div className="summary-chip">
-              <strong>{selectedNode ? selectedNode.label : "No active node"}</strong>
-              <span>
-                {reparentMode
-                  ? "Click another node to make it the new parent."
-                  : "Click a node to select it."}
-              </span>
+
+            <div className="brainstorm-toolbar__actions">
+              <button
+                type="button"
+                onClick={() => openNodeEditor("create-root")}
+                disabled={!selectedCanvasIdForActions || isGraphLoading}
+              >
+                Add root
+              </button>
+              <button
+                type="button"
+                className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                onClick={() => openNodeEditor("create-child")}
+                disabled={!selectedNode}
+              >
+                Child
+              </button>
+              <button
+                type="button"
+                className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                onClick={() => openNodeEditor("create-sibling")}
+                disabled={!selectedNode}
+              >
+                Sibling
+              </button>
+              <button
+                type="button"
+                className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                onClick={() => openNodeEditor("edit")}
+                disabled={!selectedNode}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                className={
+                  connectMode
+                    ? "skill-tree-toolbar__button skill-tree-toolbar__button--active"
+                    : "skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                }
+                onClick={() => setConnectMode((current) => !current)}
+                disabled={!selectedNode}
+              >
+                {connectMode ? "Moving" : "Move under"}
+              </button>
+              <button
+                type="button"
+                className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                onClick={() => setViewportOffset({ x: 48, y: 36 })}
+              >
+                Reset view
+              </button>
+              <button
+                type="button"
+                className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                onClick={() => void detachSelectedNode()}
+                disabled={!selectedNode?.parentNodeId}
+              >
+                Detach
+              </button>
+              <button
+                type="button"
+                className="skill-tree-toolbar__button skill-tree-toolbar__button--secondary"
+                onClick={() => void deleteSelectedNode()}
+                disabled={!selectedNode}
+              >
+                Delete
+              </button>
             </div>
           </div>
 
+          <div className="brainstorm-toolbar__hint">
+            Drag empty space to pan. Drag a node to move its whole branch. Child and sibling creation
+            keep connections automatic and spaced.
+          </div>
+
           {graphLoadingId === selectedCanvasIdForActions ? (
-            <p className="callout">Refreshing canvas graph…</p>
+            <p className="callout">Refreshing canvas…</p>
           ) : null}
 
-          <GraphCanvasSurface
-            title={selectedCanvas?.name ?? "Brainstorm canvas"}
+          <BrainstormCanvasSurface
             nodes={canvasView.nodes}
             edges={canvasView.edges}
             selectedNodeId={selectedNodeId ?? undefined}
-            pendingParentNodeId={reparentMode ? selectedNodeId ?? undefined : undefined}
+            connectMode={connectMode}
             draggingNodeId={draggingNodeId ?? undefined}
-            emptyMessage="Create a node to start the mind-map. Child nodes will appear connected automatically."
+            blockedNodeIds={connectBlockedNodeIds}
+            viewportOffset={viewportOffset}
+            emptyTitle={isGraphLoading ? "Loading canvas" : "Mind-map canvas"}
+            emptyMessage={
+              isGraphLoading
+                ? "Loading nodes and connections for this canvas…"
+                : "Add a root node to begin the mind-map. Children and sibling nodes stay connected automatically."
+            }
+            loading={isGraphLoading}
             onCanvasClick={() => {
-              workspaceRef.current?.focus();
               setSelectedNodeId(null);
-              if (reparentMode) {
-                setReparentMode(false);
-              }
+              setConnectMode(false);
+              workspaceRef.current?.focus();
             }}
+            onCanvasPointerDown={handleCanvasPointerDown}
             onNodeClick={(node) => void handleNodeClick(node)}
             onNodePointerDown={handleNodePointerDown}
             renderNodeMeta={(node) => {
@@ -980,8 +1465,36 @@ export function BrainstormSpotlight({
                 : "Top-level";
             }}
           />
+
+          <p className="brainstorm-footer-hint">
+            Arrow keys move the selected branch. <code>C</code> creates a child, <code>A</code> creates a sibling,
+            <code>N</code> creates a root, <code>Enter</code> edits, and <code>M</code> toggles move-under mode.
+          </p>
         </section>
       </div>
+
+      {editorState ? (
+        <BrainstormNodeModal
+          state={editorState}
+          draft={editorDraft}
+          pending={pendingAction === "node"}
+          parentLabel={
+            editorState.mode === "create-child"
+              ? selectedNode?.label
+              : editorState.mode === "create-sibling"
+                ? parentLabel
+                : undefined
+          }
+          onDraftChange={setEditorDraft}
+          onCancel={() => {
+            setEditorState(null);
+            workspaceRef.current?.focus();
+          }}
+          onSubmit={() => {
+            void submitNodeEditor();
+          }}
+        />
+      ) : null}
     </article>
   );
 }

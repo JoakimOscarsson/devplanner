@@ -18,6 +18,11 @@
 - Exact duplicate skill creation is resolved inline in the add-skill modal with three explicit choices: create a reference here, move the existing canonical origin here, or make the new entry canonical and replace the old origin with a reference.
 - Reference nodes are rendered inline in the tree, expose a `Go to origin` action, and use `Enter` as a keyboard shortcut to jump to the canonical skill location.
 - The filter popover and left navigation drawer both support `Escape` to close and return focus to their trigger buttons.
-- The brainstorm page autofocuses its workspace surface on load and accepts `N` for root node creation alongside the child/sibling hotkeys.
+- The brainstorm page autofocuses its workspace surface on load, shows a visible focus treatment, and accepts `N` for root node creation alongside the child/sibling hotkeys.
+- Brainstorm canvas panning is available from visible empty canvas space, node dragging only commits after a real movement threshold, and a compact `Reset view` action recenters the active canvas.
+- Freshly created brainstorm canvases are initialized with an empty graph immediately so the first root-node flow works without reselecting the canvas.
+- Brainstorm hierarchy changes are currently exposed as `Move under` rather than a generic connect action, and both the web UI and graph service reject moves into a node's own subtree.
+- Brainstorm node deletion refreshes the canvas from the graph service so detached children and edges stay consistent with persisted state after destructive actions.
+- The brainstorm node modal traps focus and supports `Escape` to close.
 - Planner goals initialize an empty local breakdown shell on creation so the first added plan item or evidence note appears immediately.
 - Recommendation manual runs refresh the visible feed/provider snapshot before appending the run entry, and recent decision history prefers recommendation titles over raw ids.

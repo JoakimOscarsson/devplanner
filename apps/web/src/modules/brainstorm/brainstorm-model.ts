@@ -162,8 +162,8 @@ export function interpretBrainstormHotkey(input: {
     case "c":
     case "C":
       return "compose-child";
-    case "s":
-    case "S":
+    case "a":
+    case "A":
       return "compose-sibling";
     case "m":
     case "M":

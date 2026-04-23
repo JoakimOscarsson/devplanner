@@ -27,6 +27,11 @@
 - Duplicate promotion attempts can return the same `SKILL_RESOLUTION_REQUIRED` error and must be resolved through `POST /v1/skills/resolve-duplicate` or by focusing an existing canonical skill.
 - `POST /v1/skills/tree/nodes/:nodeId/reorder` is intended for within-level tree ordering and the current web UI hides or disables it when filtered views would make the persisted order ambiguous.
 
+## Brainstorm canvas behavior
+- `POST /v1/canvases` creates brainstorm canvases only; the web app may initialize a local empty graph for immediate first-node creation before the first explicit graph fetch returns.
+- `PATCH /v1/canvases/:canvasId/nodes/:nodeId` rejects `parentNodeId` changes that would move a brainstorm node into its own subtree.
+- `DELETE /v1/canvases/:canvasId/nodes/:nodeId` detaches direct children to the root level and removes incident edges for the deleted node.
+
 ## Shared conventions
 - Uses id prefixes from `@pdp-helper/contracts-core.ID_PREFIXES`
 - Uses route prefixes from `@pdp-helper/contracts-core.HTTP_ROUTE_PREFIXES`

@@ -363,4 +363,132 @@ describe("graph-service canvas routes", () => {
       )
     ).toBe(false);
   });
+
+  it("detaches direct children when deleting a parent", async () => {
+    const { baseUrl } = await startServer();
+
+    const createParentResponse = await fetch(
+      `${baseUrl}/v1/canvases/can_brainstorm_inbox/nodes`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          label: "Portfolio rebuild",
+          category: "project",
+          position: {
+            x: 240,
+            y: 180
+          },
+          parentNodeId: "nod_brainstorm_typescript"
+        })
+      }
+    );
+    const createParentPayload = await readJson<{ node: GraphNode }>(createParentResponse);
+
+    expect(createParentResponse.status).toBe(201);
+
+    const createResponse = await fetch(
+      `${baseUrl}/v1/canvases/can_brainstorm_inbox/nodes`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          label: "Architecture notes",
+          category: "note",
+          position: {
+            x: 240,
+            y: 260
+          },
+          parentNodeId: createParentPayload.node.id
+        })
+      }
+    );
+    const createPayload = await readJson<{ node: GraphNode }>(createResponse);
+
+    expect(createResponse.status).toBe(201);
+
+    const deleteResponse = await fetch(
+      `${baseUrl}/v1/canvases/can_brainstorm_inbox/nodes/${createParentPayload.node.id}`,
+      {
+        method: "DELETE"
+      }
+    );
+
+    expect(deleteResponse.status).toBe(200);
+
+    const graphResponse = await fetch(`${baseUrl}/v1/canvases/can_brainstorm_inbox/graph`);
+    const graphPayload = await readJson<{
+      nodes: GraphNode[];
+      edges: GraphEdge[];
+    }>(graphResponse);
+    const detachedChild = graphPayload.nodes.find(
+      (node) => node.id === createPayload.node.id
+    );
+
+    expect(detachedChild?.parentNodeId).toBeUndefined();
+    expect(
+      graphPayload.edges.some((edge) => edge.targetNodeId === createPayload.node.id)
+    ).toBe(false);
+  });
+
+  it("rejects moving a brainstorm node into its own subtree", async () => {
+    const { baseUrl } = await startServer();
+
+    const parentResponse = await fetch(`${baseUrl}/v1/canvases/can_brainstorm_inbox/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "Portfolio rebuild",
+        category: "project",
+        parentNodeId: "nod_brainstorm_typescript"
+      })
+    });
+    const parentPayload = await readJson<{ node: GraphNode }>(parentResponse);
+
+    expect(parentResponse.status).toBe(201);
+
+    const childResponse = await fetch(`${baseUrl}/v1/canvases/can_brainstorm_inbox/nodes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        label: "Architecture",
+        category: "skill",
+        parentNodeId: parentPayload.node.id
+      })
+    });
+    const childPayload = await readJson<{ node: GraphNode }>(childResponse);
+
+    expect(childResponse.status).toBe(201);
+
+    const cycleResponse = await fetch(
+      `${baseUrl}/v1/canvases/can_brainstorm_inbox/nodes/${parentPayload.node.id}`,
+      {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          parentNodeId: childPayload.node.id
+        })
+      }
+    );
+    const cyclePayload = await readJson<{
+      error: {
+        code: string;
+        message: string;
+      };
+    }>(cycleResponse);
+
+    expect(cycleResponse.status).toBe(422);
+    expect(cyclePayload.error.code).toBe("VALIDATION_FAILED");
+    expect(cyclePayload.error.message).toContain("own subtree");
+  });
 });

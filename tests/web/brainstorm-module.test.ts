@@ -490,6 +490,12 @@ describe("brainstorm module", () => {
     ).toBe("compose-child");
     expect(
       interpretBrainstormHotkey({
+        key: "a",
+        targetTagName: "div"
+      })
+    ).toBe("compose-sibling");
+    expect(
+      interpretBrainstormHotkey({
         key: "ArrowLeft",
         targetTagName: "div"
       })
@@ -509,11 +515,12 @@ describe("brainstorm module", () => {
       })
     );
 
-    expect(markup).toContain("Mind-map canvas");
-    expect(markup).toContain("Create child");
-    expect(markup).toContain("Create sibling");
-    expect(markup).toContain("Reparent mode");
-    expect(markup).toContain("Hotkeys");
-    expect(markup).toContain("N create root");
+    expect(markup).toContain("Canvases");
+    expect(markup).toContain("Add root");
+    expect(markup).toContain("Move under");
+    expect(markup).toContain("Reset view");
+    expect(markup).toContain("Drag empty space to pan.");
+    expect(markup).toContain("Select a node to edit it, move it under another node, or drag the whole branch.");
+    expect(markup).toContain("add sibling");
   });
 });

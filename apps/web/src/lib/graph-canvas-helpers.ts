@@ -121,10 +121,10 @@ export function getShortcutHintRows() {
   return [
     "N create root",
     "C create child",
-    "S create sibling",
+    "A create sibling",
     "Delete remove selected",
     "Arrow keys move selected",
-    "M toggle re-parent mode",
-    "Escape cancel re-parent mode"
+    "M toggle move-under mode",
+    "Escape cancel move-under mode"
   ] as const;
 }
