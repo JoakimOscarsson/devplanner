@@ -17,6 +17,11 @@
 7. Update architecture and guide docs in the same change whenever behavior, boundaries, dependencies, or public interfaces move.
 8. Commit the coherent slice once the checks and documentation updates are done; do not leave completed work uncommitted.
 
+## Local Docker demo refresh
+- Use `pnpm demo:refresh` after dependency or web-demo changes instead of manually restarting only `web`.
+- The refresh helper installs workspace dependencies into the Docker `workspace-node-modules` volume, repairs Docker-native optional packages needed by Vite/Rolldown when the host pnpm store is reused, builds shared packages inside Docker, then restarts the demo services.
+- If the browser reports a missing package import after a branch change, run `pnpm demo:refresh` before debugging the feature code; the cause is often a stale Docker dependency volume.
+
 ## Parallel branch policy
 - Every parallel agent task should use its own Git branch.
 - Do not let multiple active agents commit onto the same working branch.
