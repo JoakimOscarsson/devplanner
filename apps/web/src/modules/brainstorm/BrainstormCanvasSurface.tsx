@@ -1,12 +1,41 @@
-import type { PointerEvent, ReactNode } from "react";
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  type ReactNode
+} from "react";
+import {
+  Background,
+  BackgroundVariant,
+  Controls,
+  Handle,
+  MiniMap,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
+  type Edge,
+  type EdgeMouseHandler,
+  type Node,
+  type NodeMouseHandler,
+  type NodeProps,
+  type OnNodeDrag,
+  type ReactFlowInstance
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 import type { GraphEdgeViewModel, GraphNodeViewModel } from "@pdp-helper/ui-graph";
 import {
-  getConnectionPath,
-  getGraphCanvasBounds,
-  GRAPH_NODE_HEIGHT,
-  GRAPH_NODE_WIDTH,
-  toCanvasCoordinates
-} from "../../lib/graph-canvas-helpers";
+  BRAINSTORM_NODE_HEIGHT,
+  BRAINSTORM_NODE_WIDTH
+} from "./brainstorm-layout";
+
+export interface BrainstormCanvasSurfaceHandle {
+  fitView(): void;
+}
 
 export interface BrainstormCanvasSurfaceProps {
   readonly nodes: readonly GraphNodeViewModel[];
@@ -14,55 +43,245 @@ export interface BrainstormCanvasSurfaceProps {
   readonly selectedNodeId?: string;
   readonly reparentTargetNodeId?: string;
   readonly connectMode?: boolean;
-  readonly draggingNodeId?: string;
-  readonly panning?: boolean;
   readonly blockedNodeIds?: ReadonlySet<string>;
-  readonly viewportOffset: {
-    readonly x: number;
-    readonly y: number;
-  };
   readonly emptyMessage: string;
   readonly emptyTitle?: string;
   readonly loading?: boolean;
   readonly onCanvasClick?: () => void;
-  readonly onCanvasPointerDown?: (event: PointerEvent<HTMLDivElement>) => void;
   readonly onEmptyPrimaryAction?: () => void;
   readonly onNodeClick?: (node: GraphNodeViewModel) => void;
-  readonly onNodeFocus?: (node: GraphNodeViewModel) => void;
-  readonly onNodePointerDown?: (
-    event: PointerEvent<HTMLButtonElement>,
-    node: GraphNodeViewModel
+  readonly onNodeDragStop?: (
+    node: GraphNodeViewModel,
+    position: { readonly x: number; readonly y: number }
   ) => void;
   readonly renderNodeMeta?: (node: GraphNodeViewModel) => ReactNode;
 }
 
-export function BrainstormCanvasSurface({
+interface BrainstormRFNodeData extends Record<string, unknown> {
+  readonly view: GraphNodeViewModel;
+  readonly isSelected: boolean;
+  readonly isReparentTarget: boolean;
+  readonly isConnectOrigin: boolean;
+  readonly isBlocked: boolean;
+  readonly metaNode: ReactNode;
+}
+
+type BrainstormRFNode = Node<BrainstormRFNodeData, "brainstorm">;
+
+const BrainstormNodeView = memo(function BrainstormNodeView({
+  data
+}: NodeProps<BrainstormRFNode>) {
+  const { view, isSelected, isReparentTarget, isConnectOrigin, isBlocked, metaNode } =
+    data;
+
+  const className = [
+    "brainstorm-node",
+    `brainstorm-node--${view.colorToken}`,
+    isSelected ? "brainstorm-node--selected" : "",
+    isReparentTarget ? "brainstorm-node--reparent-target" : "",
+    isConnectOrigin ? "brainstorm-node--connect-origin" : "",
+    isBlocked ? "brainstorm-node--connect-blocked" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div
+      className={className}
+      data-brainstorm-hotkeys="allow"
+      aria-label={isSelected ? `${view.label}, selected` : view.label}
+      style={{
+        width: BRAINSTORM_NODE_WIDTH,
+        minHeight: BRAINSTORM_NODE_HEIGHT
+      }}
+    >
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ opacity: 0, pointerEvents: "none" }}
+        isConnectable={false}
+      />
+      <span className="brainstorm-node__label">{view.label}</span>
+      <span className="brainstorm-node__meta">{view.category}</span>
+      {metaNode ? <span className="brainstorm-node__submeta">{metaNode}</span> : null}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ opacity: 0, pointerEvents: "none" }}
+        isConnectable={false}
+      />
+    </div>
+  );
+});
+
+const NODE_TYPES = { brainstorm: BrainstormNodeView } as const;
+
+export const BrainstormCanvasSurface = forwardRef<
+  BrainstormCanvasSurfaceHandle,
+  BrainstormCanvasSurfaceProps
+>(function BrainstormCanvasSurface(props, ref) {
+  return (
+    <ReactFlowProvider>
+      <BrainstormCanvasFlow {...props} forwardedRef={ref} />
+    </ReactFlowProvider>
+  );
+});
+
+interface BrainstormCanvasFlowProps extends BrainstormCanvasSurfaceProps {
+  readonly forwardedRef: React.ForwardedRef<BrainstormCanvasSurfaceHandle>;
+}
+
+function BrainstormCanvasFlow({
   nodes,
   edges,
   selectedNodeId,
   reparentTargetNodeId,
   connectMode = false,
-  draggingNodeId,
-  panning = false,
   blockedNodeIds,
-  viewportOffset,
   emptyMessage,
   emptyTitle = "Mind-map canvas",
   loading = false,
   onCanvasClick,
-  onCanvasPointerDown,
   onEmptyPrimaryAction,
   onNodeClick,
-  onNodeFocus,
-  onNodePointerDown,
-  renderNodeMeta
-}: BrainstormCanvasSurfaceProps) {
+  onNodeDragStop,
+  renderNodeMeta,
+  forwardedRef
+}: BrainstormCanvasFlowProps) {
+  const reactFlow = useReactFlow();
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+
+  useImperativeHandle(
+    forwardedRef,
+    () => ({
+      fitView() {
+        reactFlow.fitView({ padding: 0.24, duration: 240 });
+      }
+    }),
+    [reactFlow]
+  );
+
+  const rfNodes = useMemo<BrainstormRFNode[]>(() => {
+    return nodes.map((node) => ({
+      id: node.id,
+      type: "brainstorm",
+      position: { x: node.position.x, y: node.position.y },
+      draggable: !connectMode,
+      selectable: true,
+      selected: node.id === selectedNodeId,
+      data: {
+        view: node,
+        isSelected: node.id === selectedNodeId,
+        isReparentTarget: node.id === reparentTargetNodeId,
+        isConnectOrigin: connectMode && node.id === selectedNodeId,
+        isBlocked: connectMode ? blockedNodeIds?.has(node.id) ?? false : false,
+        metaNode: renderNodeMeta ? renderNodeMeta(node) : null
+      }
+    }));
+  }, [
+    nodes,
+    selectedNodeId,
+    reparentTargetNodeId,
+    connectMode,
+    blockedNodeIds,
+    renderNodeMeta
+  ]);
+
+  const rfEdges = useMemo<Edge[]>(() => {
+    const structural: Edge[] = [];
+    const seen = new Set<string>();
+
+    for (const node of nodes) {
+      if (!node.parentNodeId) {
+        continue;
+      }
+      const key = `parent-${node.id}`;
+      seen.add(`${node.parentNodeId}->${node.id}`);
+      structural.push({
+        id: key,
+        source: node.parentNodeId,
+        target: node.id,
+        type: "smoothstep",
+        className: "brainstorm-edge brainstorm-edge--parent",
+        focusable: false,
+        deletable: false
+      });
+    }
+
+    for (const edge of edges) {
+      const key = `${edge.sourceNodeId}->${edge.targetNodeId}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      structural.push({
+        id: edge.id,
+        source: edge.sourceNodeId,
+        target: edge.targetNodeId,
+        type: "smoothstep",
+        className: "brainstorm-edge",
+        focusable: false,
+        deletable: false
+      });
+    }
+
+    return structural;
+  }, [nodes, edges]);
+
+  const handleNodeClick = useCallback<NodeMouseHandler>(
+    (_event, node) => {
+      const view = nodesRef.current.find((candidate) => candidate.id === node.id);
+      if (view) {
+        onNodeClick?.(view);
+      }
+    },
+    [onNodeClick]
+  );
+
+  const handleNodeDragStop = useCallback<OnNodeDrag>(
+    (_event, node) => {
+      const view = nodesRef.current.find((candidate) => candidate.id === node.id);
+      if (view) {
+        onNodeDragStop?.(view, {
+          x: Math.round(node.position.x),
+          y: Math.round(node.position.y)
+        });
+      }
+    },
+    [onNodeDragStop]
+  );
+
+  const handlePaneClick = useCallback(() => {
+    onCanvasClick?.();
+  }, [onCanvasClick]);
+
+  const handleEdgeClick = useCallback<EdgeMouseHandler>((event) => {
+    event.stopPropagation();
+  }, []);
+
+  // Fit view once when node set appears from empty.
+  const hadNodesRef = useRef(false);
+  useEffect(() => {
+    if (nodes.length === 0) {
+      hadNodesRef.current = false;
+      return;
+    }
+    if (hadNodesRef.current) {
+      return;
+    }
+    hadNodesRef.current = true;
+    const raf = requestAnimationFrame(() => {
+      reactFlow.fitView({ padding: 0.24, duration: 0 });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [nodes.length, reactFlow]);
+
   if (nodes.length === 0) {
     return (
       <div
         className="brainstorm-canvas brainstorm-canvas--empty"
         onClick={onCanvasClick}
-        onPointerDown={onCanvasPointerDown}
       >
         <div className="brainstorm-canvas__empty">
           <strong>{emptyTitle}</strong>
@@ -71,13 +290,11 @@ export function BrainstormCanvasSurface({
             <button
               type="button"
               className="brainstorm-canvas__empty-action"
-              onPointerDown={(event) => {
-                event.stopPropagation();
-              }}
               onClick={(event) => {
                 event.stopPropagation();
                 onEmptyPrimaryAction();
               }}
+              disabled={loading}
             >
               Add root
             </button>
@@ -87,108 +304,42 @@ export function BrainstormCanvasSurface({
     );
   }
 
-  const bounds = getGraphCanvasBounds(nodes);
-  const nodesById = new Map(nodes.map((node) => [node.id, node] as const));
-
   return (
     <div
       className={[
         "brainstorm-canvas",
-        connectMode ? "brainstorm-canvas--connect" : "",
-        panning ? "brainstorm-canvas--panning" : ""
+        connectMode ? "brainstorm-canvas--connect" : ""
       ]
         .filter(Boolean)
         .join(" ")}
-      onClick={onCanvasClick}
-      onPointerDown={onCanvasPointerDown}
     >
-      <svg
-        className="brainstorm-canvas__wires"
-        width={bounds.width}
-        height={bounds.height}
-        viewBox={`0 0 ${bounds.width} ${bounds.height}`}
-        aria-hidden="true"
+      <ReactFlow
+        nodes={rfNodes}
+        edges={rfEdges}
+        nodeTypes={NODE_TYPES}
+        onNodeClick={handleNodeClick}
+        onNodeDragStop={handleNodeDragStop}
+        onPaneClick={handlePaneClick}
+        onEdgeClick={handleEdgeClick}
+        nodesConnectable={false}
+        elementsSelectable
+        selectNodesOnDrag={false}
+        panOnDrag
+        panOnScroll={false}
+        zoomOnScroll
+        zoomOnDoubleClick={false}
+        minZoom={0.3}
+        maxZoom={1.6}
+        proOptions={{ hideAttribution: true }}
+        fitView
+        fitViewOptions={{ padding: 0.24 }}
       >
-        {edges.map((edge) => {
-          const path = getConnectionPath({ edge, nodesById, bounds });
-
-          if (!path) {
-            return null;
-          }
-
-          return (
-            <path
-              key={edge.id}
-              d={path}
-              className="brainstorm-canvas__wire"
-              style={{
-                transform: `translate(${viewportOffset.x}px, ${viewportOffset.y}px)`
-              }}
-            />
-          );
-        })}
-      </svg>
-
-      <div className="brainstorm-canvas__content" style={{ width: bounds.width, height: bounds.height }}>
-        {nodes.map((node) => {
-          const coordinates = toCanvasCoordinates(node.position, bounds);
-          const isSelected = node.id === selectedNodeId;
-          const isReparentTarget = node.id === reparentTargetNodeId;
-          const className = [
-            "brainstorm-node",
-            `brainstorm-node--${node.colorToken}`,
-            isSelected ? "brainstorm-node--selected" : "",
-            isReparentTarget ? "brainstorm-node--reparent-target" : "",
-            draggingNodeId === node.id ? "brainstorm-node--dragging" : "",
-            connectMode && isSelected ? "brainstorm-node--connect-origin" : "",
-            connectMode && blockedNodeIds?.has(node.id)
-              ? "brainstorm-node--connect-blocked"
-              : ""
-          ]
-            .filter(Boolean)
-            .join(" ");
-
-          return (
-            <button
-              key={node.id}
-              type="button"
-              data-brainstorm-hotkeys="allow"
-              className={className}
-              aria-describedby={isReparentTarget ? `brainstorm-node-target-${node.id}` : undefined}
-              aria-label={isSelected ? `${node.label}, selected` : node.label}
-              style={{
-                left: coordinates.x + viewportOffset.x,
-                top: coordinates.y + viewportOffset.y,
-                width: GRAPH_NODE_WIDTH,
-                minHeight: GRAPH_NODE_HEIGHT
-              }}
-              onClick={(event) => {
-                event.stopPropagation();
-                onNodeClick?.(node);
-              }}
-              onFocus={() => {
-                onNodeFocus?.(node);
-              }}
-              onPointerDown={(event) => {
-                event.stopPropagation();
-                onNodePointerDown?.(event, node);
-              }}
-              disabled={loading}
-            >
-              <span className="brainstorm-node__label">{node.label}</span>
-              <span className="brainstorm-node__meta">{node.category}</span>
-              {renderNodeMeta ? (
-                <span className="brainstorm-node__submeta">{renderNodeMeta(node)}</span>
-              ) : null}
-              {isReparentTarget ? (
-                <span id={`brainstorm-node-target-${node.id}`} className="sr-only">
-                  Current move-under target
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
+        <Controls showInteractive={false} />
+        <MiniMap pannable zoomable ariaLabel="Brainstorm minimap" />
+      </ReactFlow>
     </div>
   );
 }
+
+export type { ReactFlowInstance };
