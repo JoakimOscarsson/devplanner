@@ -152,6 +152,8 @@ export function BrainstormCanvasSurface({
               type="button"
               data-brainstorm-hotkeys="allow"
               className={className}
+              aria-pressed={isSelected}
+              aria-describedby={isReparentTarget ? `brainstorm-node-target-${node.id}` : undefined}
               style={{
                 left: coordinates.x + viewportOffset.x,
                 top: coordinates.y + viewportOffset.y,
@@ -172,6 +174,11 @@ export function BrainstormCanvasSurface({
               <span className="brainstorm-node__meta">{node.category}</span>
               {renderNodeMeta ? (
                 <span className="brainstorm-node__submeta">{renderNodeMeta(node)}</span>
+              ) : null}
+              {isReparentTarget ? (
+                <span id={`brainstorm-node-target-${node.id}`} className="sr-only">
+                  Current move-under target
+                </span>
               ) : null}
             </button>
           );

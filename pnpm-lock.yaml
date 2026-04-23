@@ -56,6 +56,9 @@ importers:
       '@pdp-helper/contracts-planner':
         specifier: workspace:*
         version: link:../../packages/contracts-planner
+      '@pdp-helper/contracts-recommendation':
+        specifier: workspace:*
+        version: link:../../packages/contracts-recommendation
       '@pdp-helper/runtime-web':
         specifier: workspace:*
         version: link:../../packages/runtime-web

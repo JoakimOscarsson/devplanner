@@ -12,7 +12,7 @@ This document tracks implementation milestones, substeps, dependencies, and clea
 ## Current Status Snapshot
 - Most recent confirmed green `main` CI before this tracker update: run `24783822191` for commit `309b4dd` on 2026-04-22.
 - Current development baseline on `main`: architecture/contracts/platform/web foundation complete, plus integrated page-based demo flows for brainstorm mind-mapping, skill-tree promotion and duplicate handling, planner goal writes, tracker projections, and recommendations review.
-- In-flight slice on the coordinator branch: brainstorm canvas interaction overhaul iteration 3, focused on visual-order reparenting, overlap-safe rendering, safer modal dismissal, lower-risk drag/pan behavior, and keyboard/control boundary cleanup. This remains untracked in the checkbox board until it is pushed to `main` and GitHub `CI` is green.
+- In-flight slice on the coordinator branch: brainstorm canvas interaction overhaul iteration 4, focused on mutation locking, responsive reset behavior, clearer empty-space/no-canvas states, and lockfile alignment so GitHub `CI` can return to green. This remains untracked in the checkbox board until it is pushed to `main` and GitHub `CI` is green.
 
 ## Live Status Board
 

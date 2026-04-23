@@ -7,3 +7,4 @@
 - The brainstorm page should favor a calm, canvas-first mind-map editor with direct manipulation, automatic spacing, subtree movement, and a small command set that stays usable with both mouse and keyboard.
 - Brainstorm destructive actions should bias toward trust over speed: branch deletes confirm first, and failed optimistic moves should reconcile with persisted state rather than leaving the canvas in a fake saved state.
 - Brainstorm modal editing should protect user input by trapping focus, blocking dismissal while requests are pending, and confirming before dirty drafts are discarded.
+- Brainstorm command handling should serialize writes to the active selection so repeat keys or double-clicks cannot queue contradictory mutations against the same branch.

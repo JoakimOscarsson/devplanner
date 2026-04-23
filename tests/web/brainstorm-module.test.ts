@@ -527,6 +527,6 @@ describe("brainstorm module", () => {
     expect(markup).toContain("Reset view");
     expect(markup).toContain("Drag empty space to pan.");
     expect(markup).toContain("Select a node to edit it, move it under another node, or drag the whole branch.");
-    expect(markup).toContain("add sibling");
+    expect(markup).toContain("Select a node to edit, reparent, or remove it.");
   });
 });
