@@ -42,6 +42,7 @@ import {
 
 type PendingAction = "canvas" | "node" | "mutation" | null;
 type NodeEditorMode = "create-root" | "create-child" | "create-sibling" | "edit";
+type ToastTone = "info" | "error";
 
 interface NodeEditorState {
   readonly mode: NodeEditorMode;
@@ -73,6 +74,12 @@ interface ConfirmState {
   readonly onConfirm: () => void;
 }
 
+interface ToastEntry {
+  readonly id: string;
+  readonly message: string;
+  readonly tone: ToastTone;
+}
+
 export interface BrainstormSpotlightProps {
   readonly module?: ModuleCapability;
   readonly gatewayBaseUrl?: string;
@@ -92,6 +99,14 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unable to load brainstorm data.";
 }
 
+function buildToastEntry(message: string, tone: ToastTone = "info"): ToastEntry {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    message,
+    tone
+  };
+}
+
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -106,6 +121,7 @@ function isTypingTarget(target: EventTarget | null) {
     tagName === "input" ||
     tagName === "textarea" ||
     tagName === "select" ||
+    tagName === "button" ||
     tagName === "a" ||
     target.isContentEditable
   );
@@ -211,11 +227,11 @@ function shiftNodePositions(
 }
 
 function compareCanvasNodes(left: GraphNodeViewModel, right: GraphNodeViewModel) {
-  if (left.position.x !== right.position.x) {
-    return left.position.x - right.position.x;
-  }
   if (left.position.y !== right.position.y) {
     return left.position.y - right.position.y;
+  }
+  if (left.position.x !== right.position.x) {
+    return left.position.x - right.position.x;
   }
   return left.label.localeCompare(right.label, undefined, { sensitivity: "base" });
 }
@@ -427,14 +443,89 @@ function BrainstormConfirmModal({
   readonly onCancel: () => void;
   readonly pending?: boolean;
 }) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const pointerStartedOnBackdrop = useRef(false);
+
+  useEffect(() => {
+    const firstFocusable = dialogRef.current?.querySelector<HTMLElement>(
+      "button:not([disabled])"
+    );
+    firstFocusable?.focus();
+  }, []);
+
   return (
-    <div className="brainstorm-modal-backdrop" role="presentation">
+    <div
+      className="brainstorm-modal-backdrop"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (pending) {
+          return;
+        }
+        pointerStartedOnBackdrop.current = event.target === event.currentTarget;
+      }}
+      onPointerUp={(event) => {
+        if (pending) {
+          pointerStartedOnBackdrop.current = false;
+          return;
+        }
+        if (
+          pointerStartedOnBackdrop.current &&
+          event.target === event.currentTarget
+        ) {
+          onCancel();
+        }
+        pointerStartedOnBackdrop.current = false;
+      }}
+      onPointerCancel={() => {
+        pointerStartedOnBackdrop.current = false;
+      }}
+    >
       <div
+        ref={dialogRef}
         className="brainstorm-modal brainstorm-modal--confirm"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="brainstorm-confirm-title"
         aria-describedby="brainstorm-confirm-message"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            if (!pending) {
+              onCancel();
+            }
+            return;
+          }
+
+          if (event.key !== "Tab") {
+            return;
+          }
+
+          const focusableElements = Array.from(
+            dialogRef.current?.querySelectorAll<HTMLElement>("button:not([disabled])") ?? []
+          );
+
+          if (focusableElements.length === 0) {
+            return;
+          }
+
+          const firstFocusable = focusableElements[0];
+          const lastFocusable = focusableElements[focusableElements.length - 1];
+
+          if (!firstFocusable || !lastFocusable) {
+            return;
+          }
+
+          if (event.shiftKey && document.activeElement === firstFocusable) {
+            event.preventDefault();
+            lastFocusable.focus();
+            return;
+          }
+
+          if (!event.shiftKey && document.activeElement === lastFocusable) {
+            event.preventDefault();
+            firstFocusable.focus();
+          }
+        }}
       >
         <div className="brainstorm-modal__header">
           <h2 id="brainstorm-confirm-title">{state.title}</h2>
@@ -482,6 +573,7 @@ export function BrainstormSpotlight({
   const [loading, setLoading] = useState(snapshot ? false : true);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [toastEntries, setToastEntries] = useState<readonly ToastEntry[]>([]);
   const [graphLoadingId, setGraphLoadingId] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [canvasName, setCanvasName] = useState("");
@@ -496,12 +588,18 @@ export function BrainstormSpotlight({
   );
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
+  const canvasNameInputRef = useRef<HTMLInputElement | null>(null);
   const canvasHandleRef = useRef<BrainstormCanvasSurfaceHandle | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const didAutoFocusWorkspace = useRef(false);
+  const framedCanvasIdsRef = useRef(new Set<BrainstormCanvas["id"]>());
   const refreshSequenceRef = useRef(0);
   const dragPreviewRef = useRef<DragPreviewState | null>(null);
   const dragRequestSequenceRef = useRef(0);
+
+  function pushToast(message: string, tone: ToastTone = "info") {
+    setToastEntries((current) => [...current, buildToastEntry(message, tone)]);
+  }
 
   useEffect(() => {
     if (!snapshot) {
@@ -571,7 +669,8 @@ export function BrainstormSpotlight({
       ? nodesById.get(selectedNode.parentNodeId)?.label
       : undefined;
   const selectedNodeCount = selectedGraph?.nodes.length ?? 0;
-  const linkCount = selectedGraph?.edges.length ?? 0;
+  const linkCount =
+    selectedGraph?.edges.filter((edge) => edge.kind !== "contains").length ?? 0;
   const explicitEdgesForSelectedNode = useMemo(() => {
     if (!selectedNode || !selectedGraph) {
       return [];
@@ -621,11 +720,49 @@ export function BrainstormSpotlight({
 
   useEffect(() => {
     if (didAutoFocusWorkspace.current || loading || !selectedCanvas) {
+      if (
+        !didAutoFocusWorkspace.current &&
+        !loading &&
+        activeSnapshot.canvases.length === 0
+      ) {
+        didAutoFocusWorkspace.current = true;
+        canvasNameInputRef.current?.focus();
+      }
       return;
     }
     didAutoFocusWorkspace.current = true;
     workspaceRef.current?.focus();
-  }, [loading, selectedCanvas]);
+  }, [activeSnapshot.canvases.length, loading, selectedCanvas]);
+
+  useEffect(() => {
+    if (!feedback) {
+      return;
+    }
+    pushToast(feedback);
+  }, [feedback]);
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+    pushToast(error, "error");
+  }, [error]);
+
+  useEffect(() => {
+    if (toastEntries.length === 0) {
+      return;
+    }
+
+    const timeoutIds = toastEntries.map((entry, index) =>
+      window.setTimeout(() => {
+        setToastEntries((current) => current.filter((item) => item.id !== entry.id));
+      }, 2600 + index * 160)
+    );
+
+    return () => {
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    };
+  }, [toastEntries]);
 
   useEffect(() => {
     setConnectMode(false);
@@ -675,6 +812,22 @@ export function BrainstormSpotlight({
       setLinkMode(false);
     }
   }, [selectedGraph, selectedNodeId]);
+
+  useEffect(() => {
+    if (!selectedCanvasIdForActions || !selectedGraph || selectedGraph.nodes.length === 0) {
+      return;
+    }
+
+    if (framedCanvasIdsRef.current.has(selectedCanvasIdForActions)) {
+      return;
+    }
+
+    framedCanvasIdsRef.current.add(selectedCanvasIdForActions);
+    const raf = requestAnimationFrame(() => {
+      canvasHandleRef.current?.fitView();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [selectedCanvasIdForActions, selectedGraph]);
 
   async function refreshCanvasGraph(
     canvasId: BrainstormCanvas["id"],
@@ -795,6 +948,9 @@ export function BrainstormSpotlight({
           })[0]?.id ?? null;
       setSelectedNodeId(nextSelectedNodeId);
       focusCanvasNode(nextSelectedNodeId);
+      void refreshCanvasGraph(canvasId, {
+        preferredSelectedNodeId: nextSelectedNodeId
+      });
       return;
     }
 
@@ -820,6 +976,10 @@ export function BrainstormSpotlight({
           name,
           mode: "brainstorm"
         });
+        if (!snapshot) {
+          const nextSnapshot = await loadBrainstormSnapshot(gateway);
+          setLocalSnapshot(nextSnapshot);
+        }
       } else {
         const response = await gateway.createCanvas({
           name,
@@ -918,6 +1078,13 @@ export function BrainstormSpotlight({
       target.focus();
       return;
     }
+
+    if (selectedNodeId) {
+      focusCanvasNode(selectedNodeId);
+      return;
+    }
+
+    workspaceRef.current?.focus();
   }
 
   function closeNodeEditor() {
@@ -1318,6 +1485,7 @@ export function BrainstormSpotlight({
       dragRequestSequenceRef.current = requestSequence;
 
       try {
+        setPendingAction("mutation");
         await Promise.all(
           changedNodes.map((entry) =>
             gateway.updateNode({
@@ -1335,6 +1503,10 @@ export function BrainstormSpotlight({
         await refreshCanvasGraph(canvasId, {
           preferredSelectedNodeId: node.id as BrainstormNode["id"]
         });
+      } finally {
+        if (dragRequestSequenceRef.current === requestSequence) {
+          setPendingAction(null);
+        }
       }
     },
     [gateway, localSnapshot, pendingAction, selectedCanvasIdForActions]
@@ -1597,8 +1769,6 @@ export function BrainstormSpotlight({
       tabIndex={0}
     >
       {loading ? <p className="callout" role="status" aria-live="polite">Loading canvases…</p> : null}
-      {error ? <p className="callout callout--error" role="alert">{error}</p> : null}
-      {feedback ? <p className="callout" role="status" aria-live="polite">{feedback}</p> : null}
 
       <div className="brainstorm-layout">
         <aside className="brainstorm-sidebar">
@@ -1632,6 +1802,7 @@ export function BrainstormSpotlight({
 
             <form className="brainstorm-canvas-create" onSubmit={(event) => void handleCreateCanvas(event)}>
               <input
+                ref={canvasNameInputRef}
                 value={canvasName}
                 onChange={(event) => setCanvasName(event.target.value)}
                 placeholder="New canvas"
@@ -1895,6 +2066,28 @@ export function BrainstormSpotlight({
                 : undefined
             }
             onNodeClick={(node) => void handleNodeClick(node)}
+            onNodeDoubleClick={(node) => {
+              const nodeId = node.id as BrainstormNode["id"];
+              const nodeRecord = nodesById.get(nodeId);
+              if (!nodeRecord || pendingAction === "mutation") {
+                return;
+              }
+              setSelectedNodeId(nodeId);
+              focusCanvasNode(nodeId);
+              setFeedback(null);
+              setError(null);
+              setConnectMode(false);
+              setLinkMode(false);
+              returnFocusRef.current =
+                document.activeElement instanceof HTMLElement ? document.activeElement : null;
+              const nextDraft = createNodeDraftFromNode(nodeRecord);
+              setEditorState({
+                mode: "edit",
+                nodeId
+              });
+              setEditorDraft(nextDraft);
+              setEditorInitialDraft(nextDraft);
+            }}
             onNodeFocus={handleNodeFocus}
             onNodeDrag={handleNodeDrag}
             onNodeDragStop={handleNodeDragStop}
@@ -1954,6 +2147,22 @@ export function BrainstormSpotlight({
           }}
           pending={pendingAction === "mutation"}
         />
+      ) : null}
+      {toastEntries.length > 0 ? (
+        <div className="skill-tree-toast-stack">
+          {toastEntries.map((entry) => (
+            <aside
+              key={entry.id}
+              className={
+                entry.tone === "error"
+                  ? "skill-tree-toast skill-tree-toast--error"
+                  : "skill-tree-toast"
+              }
+            >
+              {entry.message}
+            </aside>
+          ))}
+        </div>
       ) : null}
     </article>
   );

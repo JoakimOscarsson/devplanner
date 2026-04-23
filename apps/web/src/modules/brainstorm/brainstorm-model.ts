@@ -193,6 +193,7 @@ export function interpretBrainstormHotkey(input: {
     tagName === "input" ||
     tagName === "textarea" ||
     tagName === "select" ||
+    tagName === "button" ||
     input.metaKey ||
     input.ctrlKey ||
     input.altKey

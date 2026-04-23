@@ -2,7 +2,6 @@ import {
   forwardRef,
   memo,
   useCallback,
-  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -52,6 +51,7 @@ export interface BrainstormCanvasSurfaceProps {
   readonly onCanvasClick?: () => void;
   readonly onEmptyPrimaryAction?: () => void;
   readonly onNodeClick?: (node: GraphNodeViewModel) => void;
+  readonly onNodeDoubleClick?: (node: GraphNodeViewModel) => void;
   readonly onNodeFocus?: (node: GraphNodeViewModel) => void;
   readonly onNodeDrag?: (
     node: GraphNodeViewModel,
@@ -74,6 +74,7 @@ interface BrainstormRFNodeData extends Record<string, unknown> {
   readonly metaNode: ReactNode;
   readonly onFocusNode?: (node: GraphNodeViewModel) => void;
   readonly onClickNode?: (node: GraphNodeViewModel) => void;
+  readonly onDoubleClickNode?: (node: GraphNodeViewModel) => void;
   readonly registerNodeElement?: (nodeId: string, element: HTMLDivElement | null) => void;
 }
 
@@ -113,6 +114,10 @@ const BrainstormNodeView = memo(function BrainstormNodeView({
       onClick={() => {
         data.onClickNode?.(view);
       }}
+      onDoubleClick={() => {
+        data.onDoubleClickNode?.(view);
+      }}
+      title={view.label}
       style={{
         width: BRAINSTORM_NODE_WIDTH,
         minHeight: BRAINSTORM_NODE_HEIGHT
@@ -155,7 +160,6 @@ interface BrainstormCanvasFlowProps extends BrainstormCanvasSurfaceProps {
 }
 
 function BrainstormCanvasFlow({
-  viewKey,
   nodes,
   edges,
   selectedNodeId,
@@ -169,6 +173,7 @@ function BrainstormCanvasFlow({
   onCanvasClick,
   onEmptyPrimaryAction,
   onNodeClick,
+  onNodeDoubleClick,
   onNodeFocus,
   onNodeDrag,
   onNodeDragStop,
@@ -212,6 +217,7 @@ function BrainstormCanvasFlow({
         metaNode: renderNodeMeta ? renderNodeMeta(node) : null,
         onFocusNode: onNodeFocus,
         onClickNode: onNodeClick,
+        onDoubleClickNode: onNodeDoubleClick,
         registerNodeElement(nodeId, element) {
           if (element) {
             nodeElementRefs.current.set(nodeId, element);
@@ -230,6 +236,7 @@ function BrainstormCanvasFlow({
     disabled,
     blockedNodeIds,
     onNodeClick,
+    onNodeDoubleClick,
     onNodeFocus,
     renderNodeMeta
   ]);
@@ -327,16 +334,6 @@ function BrainstormCanvasFlow({
     event.stopPropagation();
   }, []);
 
-  useEffect(() => {
-    if (nodes.length === 0) {
-      return;
-    }
-    const raf = requestAnimationFrame(() => {
-      reactFlow.fitView({ padding: 0.24, duration: 0 });
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [nodes.length, reactFlow, viewKey]);
-
   return (
     <div
       className={[
@@ -368,8 +365,6 @@ function BrainstormCanvasFlow({
         minZoom={0.3}
         maxZoom={1.6}
         proOptions={{ hideAttribution: true }}
-        fitView
-        fitViewOptions={{ padding: 0.24 }}
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
       </ReactFlow>

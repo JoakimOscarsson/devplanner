@@ -524,6 +524,12 @@ describe("brainstorm module", () => {
         targetTagName: "input"
       })
     ).toBeNull();
+    expect(
+      interpretBrainstormHotkey({
+        key: "Delete",
+        targetTagName: "button"
+      })
+    ).toBeNull();
   });
 
   it("renders a mind-map canvas with command hints and node actions", () => {
